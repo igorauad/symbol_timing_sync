@@ -1,14 +1,20 @@
 clearvars, clc, %close all
 
+%% Debug Configuration
+
+debug_const   = 1;    % Debug Constellation
+debug_counter = 1;    % Debug interpolator controller (counter)
+
 %% Parameters
-L        = 32;
-nSymbols = 10000;
-Bn_Ts    = 0.005;      % PLL noise bandwidth (Bn) times symbol period (Ts)
-xi       = 1/sqrt(2);
-rollOff  = 0.5;
-rndDelay = 5;          % Random delay added to add a disturbance
+L        = 32;         % Oversampling factor
+M        = 4;          % Constellation order
+nSymbols = 10000;      % Number of transmit symbols
+Bn_Ts    = 0.01;       % PLL noise bandwidth (Bn) times symbol period (Ts)
+xi       = 1/sqrt(2);  % PLL Damping Factor
+rollOff  = 0.5;        % Pulse shaping roll-off factor
+rndDelay = 5;          % Random delay (in samples) added
 rcDelay  = 10;         % Raised cosine (combined Tx/Rx) delay
-SNR      = 25;
+SNR      = 25;         % Target SNR
 Ex       = 1;          % Average symbol energy
 TED      = 'MLTED';    % TED Type
 
@@ -33,25 +39,47 @@ DELAY   = dsp.Delay(rndDelay);
 % Symbol Synchronizer
 SYMSYNC = comm.SymbolSynchronizer('SamplesPerSymbol', L);
 
-%% MF
+% Constellation Diagram
+if (debug_const)
+    hScope = comm.ConstellationDiagram(...
+        'SymbolsToDisplaySource', 'Property',...
+        'SamplesPerSymbol', 1, ...
+        'MeasurementInterval', 256, ...
+        'ReferenceConstellation', ...
+        modnorm(pammod(0:M-1,M), 'avpow', Ex) * pammod(0:(M-1), M));
+    hScope.XLimits = [-1 1]*sqrt(M);
+    hScope.YLimits = [-1 1]*sqrt(M);
+end
+
+if (debug_counter)
+    hTScopeCounter = dsp.TimeScope(...
+        'Title', 'Fractional Inverval', ...
+        'NumInputPorts', 1, ...
+        'ShowGrid', 1, ...
+        'ShowLegend', 1, ...
+        'BufferLength', 1e5, ...
+        'TimeSpanOverrunAction', 'Wrap', ...
+        'TimeSpan', 1e4, ...
+        'TimeUnits', 'None', ...
+        'YLimits', [-1 1]);
+end
+
+%% Matched Filter (MF)
 mf  = RXFILT.coeffs.Numerator;
 
 %% dMF
 % IMPORTANT: use central-differences to match the results in the book
-h = (2)*[0.5 0 -0.5]; % kernel function
-% It is the future symbol minus the past symbol, divided by the interval
-% that corresponds to 2*T, where T is the sampling period. Here, we
-% consider T = 1/L.
+h = (1)*[0.5 0 -0.5]; % kernel function
 central_diff_mf = conv(h, mf);
 % Skip the filter delay
 dmf = central_diff_mf(2:1+length(mf));
 
-
 figure
 plot(mf)
-hold on
+hold on, grid on
 plot(dmf, 'r')
 legend('MF', 'dMF')
+title('MF vs. dMF')
 
 %% PLL Design
 
@@ -70,8 +98,8 @@ K0 = -1;
 [ K1, K2 ] = timingLoopPIConstants(Kp, K0, xi, Bn_Ts, L)
 
 %% Random PSK Symbols
-data    = randi([0 3], nSymbols, 1);
-modSig  = real(modnorm(pammod(0:3,4), 'avpow', Ex) * pammod(data, 4));
+data    = randi([0 M-1], nSymbols, 1);
+modSig  = real(modnorm(pammod(0:M-1,M), 'avpow', Ex) * pammod(data, M));
 % Important, ensure to make the average symbol energy unitary, otherwise
 % the PLL constants must be altered (because Kp, the TED gain, scales).
 
@@ -87,6 +115,7 @@ rxSample = step(RXFILT,rxSig);
 
 %% Decisions based on Timing Correction
 scatterplot(downsample(rxSample, L), 2)
+title('No Timing Correction');
 
 %% Decisions based on MLTED Timing Recovery
 k         = 1;
