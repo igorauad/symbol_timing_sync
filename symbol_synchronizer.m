@@ -105,7 +105,7 @@ rxSample = step(RXFILT,rxSig);
 rxSampleDiff = filter(dmf, 1, rxSig);
 
 %% Decoder Inputs (MF Downsampled Output) without Timing Correction
-scatterplot(downsample(rxSample, L), 2)
+scatterplot(downsample(rxSample, L))
 title('No Timing Correction');
 
 %% Decoder Inputs after ML Timing Recovery
@@ -114,7 +114,7 @@ title('No Timing Correction');
                        debug_tl_static, debug_tl_runtime);
 
 % Scatter Plot
-scatterplot(xx, 2)
+scatterplot(xx)
 title('Using MLTED Timing Recovery');
 
 %% Decoder Inputs using MATLAB's Timing Error Correction
@@ -122,5 +122,5 @@ title('Using MLTED Timing Recovery');
 rxSync = step(SYMSYNC,rxSample);
 
 % Scatter Plot
-scatterplot(rxSync(1001:end),2)
+scatterplot(rxSync(1001:end))
 title('Using MATLABs Zero-Crossing TED');
