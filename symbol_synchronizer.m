@@ -124,7 +124,7 @@ title('No Timing Correction');
 
 %% Decisions based on MLTED Timing Recovery
 k         = 1;
-underflow = 0;
+strobe    = 0;
 mu_next   = 0;
 CNT_next  = 1;
 vi        = 0;
@@ -140,10 +140,13 @@ for n=2:length(rxSig)
         step(hTScopeCounter, mu);
     end
 
-    % Parallel Interpolators (for MF and dMF)
-    if underflow == 1
-        xI    = mu * rxSample(n) + (1 - mu) * rxSample(n-1);
-        xdotI = mu * rxSampleDiff(n) + (1 - mu) * rxSampleDiff(n-1);
+    % Parallel Linear Interpolators (for MF and dMF)
+    if strobe == 1
+        m_k   = n-1; % Basepoint index (the index before the underflow)
+
+        % Interpolants (See Eq. 8.61)
+        xI    = mu * rxSample(m_k + 1) + (1 - mu) * rxSample(m_k);
+        xdotI = mu * rxSampleDiff(m_k + 1) + (1 - mu) * rxSampleDiff(m_k);
 
         % Timing Error Detector Output:
         e     = sign(xI)*xdotI;
@@ -153,6 +156,8 @@ for n=2:length(rxSig)
         xx(k)   = xI;
         ee(k)   = e;
         mu_k(k) = mu;
+
+        % Update Interpolant Index
         k = k+1;
 
         % Also optionally debug interpolant for MF output using scope
@@ -170,19 +175,21 @@ for n=2:length(rxSig)
     v(n) = vp + vi;    % PI Output
 
     % Modulo-1 Counter
-    W        = 1/L + v(n);  % Counter Step
-    CNT_next = CNT - W;     % Next Count
+    W        = 1/L + v(n);      % Adjust Counter Step
+    CNT_next = mod(CNT - W, 1); % Next Count (Modulo-1)
 
-    if (CNT_next < 0)
-        CNT_next = 1 + CNT_next;
-        underflow = 1;
+    % Whenever CNT < W, an underflow occurs (CNT_next wraps). The underflow
+    % of the counter is indicated by the strobe and should be used as the
+    % basepoint index by the interpolator.
+    if (CNT < W)
+        strobe = 1;
         mu_next = CNT/W;
     else
-        underflow = 0;
+        strobe = 0;
         mu_next = mu;
     end
-end
 
+end
 
 %% Plots
 
@@ -205,6 +212,7 @@ plot(mu_k)
 title('Fractional Error')
 ylabel('$\mu(k)$', 'Interpreter', 'latex')
 xlabel('Symbol $k$', 'Interpreter', 'latex')
+
 %% Decisions based on MATLAB Timing Error Correction
 
 rxSync = step(SYMSYNC,rxSample);
