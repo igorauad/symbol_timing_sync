@@ -12,7 +12,7 @@ nSymbols = 10000;      % Number of transmit symbols
 Bn_Ts    = 0.01;       % PLL noise bandwidth (Bn) times symbol period (Ts)
 xi       = 1/sqrt(2);  % PLL Damping Factor
 rollOff  = 0.5;        % Pulse shaping roll-off factor
-rndDelay = 5;          % Random delay (in samples) added
+timeOffset = 5;        % Delay (in samples) added
 rcDelay  = 10;         % Raised cosine (combined Tx/Rx) delay
 SNR      = 25;         % Target SNR
 Ex       = 1;          % Average symbol energy
@@ -34,7 +34,7 @@ RXFILT  = comm.RaisedCosineReceiveFilter( ...
     'FilterSpanInSymbols', rcDelay);
 
 % Digital Delay
-DELAY   = dsp.Delay(rndDelay);
+DELAY   = dsp.Delay(timeOffset);
 
 % Symbol Synchronizer
 SYMSYNC = comm.SymbolSynchronizer('SamplesPerSymbol', L);
@@ -113,7 +113,11 @@ rxSig    = awgn(delaySig, SNR, 'measured');
 %%%%%%%%%%%%%%% Rx filter  %%%%%%%%%%%%%%%
 rxSample = step(RXFILT,rxSig);
 
-%% Decisions based on Timing Correction
+%% dMF
+
+rxSampleDiff = filter(dmf, 1, rxSig);
+
+%% Decisions without Timing Correction
 scatterplot(downsample(rxSample, L), 2)
 title('No Timing Correction');
 
@@ -124,21 +128,27 @@ mu_next   = 0;
 CNT_next  = 1;
 vi        = 0;
 
-rIBuff = zeros(TXFILT.FilterSpanInSymbols*L, 1);
 for n=2:length(rxSig)
-    CNT = CNT_next;
-    mu = mu_next;
-    rI = mu * rxSig(n) + (1 - mu)*rxSig(n-1);
-    % I believe "n-1" can be interpreted as the basepoint index
-    % Note it has to be "rxSig", prior to the MF
 
-    x = mf * [rI; rIBuff];
-    xdot = dmf * [rI; rIBuff];
+    % Update values
+    CNT = CNT_next;
+    mu  = mu_next;
+
+    if (debug_counter)
+        step(hTScopeCounter, mu);
+    end
 
     if underflow == 1
-        e = sign(x)*xdot;
-        xx(k) = x;
+        xI = mu * rxSample(n) + (1 - mu) * rxSample(n-1);
+        xdotI = mu * rxSampleDiff(n) + (1 - mu) * rxSampleDiff(n-1);
+        e = sign(xI)*xdotI;
+        xx(k)   = xI;
+        ee(k)   = e;
+        mu_k(k) = mu;
         k = k+1;
+        if (debug_const)
+            step(hScope, xI)
+        end
     else
         % Upsample:
         e = 0;
@@ -149,23 +159,35 @@ for n=2:length(rxSig)
     v(n) = vp + vi;
     W = 1/L + v(n);
 
-    CNT_next = mod(CNT - W, 1);
-
-    if (CNT - W < 0) % || (CNT - W > 1)
+    CNT_next = CNT - W;
+    if (CNT_next < 0)
+        CNT_next = 1 + CNT_next;
         underflow = 1;
         mu_next = CNT/W;
     else
         underflow = 0;
         mu_next = mu;
     end
-    rIBuff = [rI; rIBuff(1:end-1)];
 end
 
 scatterplot(xx, 2)
 
 figure
-plot(v)
+plot(ee)
+ylabel('Timing Error $e(t)$', 'Interpreter', 'latex')
+xlabel('$t/T_s$', 'Interpreter', 'latex')
 
+figure
+plot(v)
+title('PI Controller Output')
+ylabel('$v(n)$', 'Interpreter', 'latex')
+xlabel('$t/T$', 'Interpreter', 'latex')
+
+figure
+plot(mu_k)
+title('Fractional Error')
+ylabel('$\mu(k)$', 'Interpreter', 'latex')
+xlabel('$t/T$', 'Interpreter', 'latex')
 %% Decisions based on MATLAB Timing Error Correction
 
 rxSync = step(SYMSYNC,rxSample);
