@@ -7,7 +7,7 @@ debug_tl_runtime = 0; % Open scope for debugging of sync loop iterations
 
 %% Parameters
 L        = 32;         % Oversampling factor
-M        = 4;          % Constellation order
+M        = 2;          % Constellation order
 nSymbols = 10000;      % Number of transmit symbols
 Bn_Ts    = 0.01;       % PLL noise bandwidth (Bn) times symbol period (Ts)
 eta      = 1/sqrt(2);  % PLL Damping Factor
@@ -18,6 +18,7 @@ SNR      = 25;         % Target SNR
 Ex       = 1;          % Average symbol energy
 TED      = 'MLTED';    % TED Type (currently only 'MLTED' is supported)
 intpl    = 0;          % 0) Linear; 1) Polyphase Interpolator
+forceZc  = 0;          % Use to force zero-crossings and debug self-noise
 
 %% System Objects
 
@@ -75,7 +76,16 @@ K0 = -1;
 % Note: MATLAB's implementations uses a default value of Kp = 2.7;
 
 %% Random PSK Symbols
-data    = randi([0 M-1], nSymbols, 1);
+
+if (forceZc)
+    % Force zero-crossings within the transmit symbols. Use to eliminate
+    % the problem of self-noise and debug the operation of the loop
+    data          = zeros(nSymbols, 1);
+    data(1:2:end) = 1;
+else
+    data = randi([0 M-1], nSymbols, 1);
+end
+
 modSig  = real(modnorm(pammod(0:M-1,M), 'avpow', Ex) * pammod(data, M));
 % Important, ensure to make the average symbol energy unitary, otherwise
 % the PLL constants must be altered (because Kp, the TED gain, scales).
