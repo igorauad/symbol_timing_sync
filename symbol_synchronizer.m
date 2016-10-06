@@ -2,8 +2,8 @@ clearvars, clc, %close all
 
 %% Debug Configuration
 
-debug_const   = 0;    % Debug Constellation
-debug_counter = 0;    % Debug interpolator controller (counter)
+debug_tl_static  = 0; % Show static debug plots after sync processing
+debug_tl_runtime = 0; % Open scope for debugging of sync loop iterations
 
 %% Parameters
 L        = 32;         % Oversampling factor
@@ -38,31 +38,6 @@ DELAY   = dsp.Delay(timeOffset);
 
 % Symbol Synchronizer
 SYMSYNC = comm.SymbolSynchronizer('SamplesPerSymbol', L);
-
-% Constellation Diagram
-if (debug_const)
-    hScope = comm.ConstellationDiagram(...
-        'SymbolsToDisplaySource', 'Property',...
-        'SamplesPerSymbol', 1, ...
-        'MeasurementInterval', 256, ...
-        'ReferenceConstellation', ...
-        modnorm(pammod(0:M-1,M), 'avpow', Ex) * pammod(0:(M-1), M));
-    hScope.XLimits = [-1 1]*sqrt(M);
-    hScope.YLimits = [-1 1]*sqrt(M);
-end
-
-if (debug_counter)
-    hTScopeCounter = dsp.TimeScope(...
-        'Title', 'Fractional Inverval', ...
-        'NumInputPorts', 1, ...
-        'ShowGrid', 1, ...
-        'ShowLegend', 1, ...
-        'BufferLength', 1e5, ...
-        'TimeSpanOverrunAction', 'Wrap', ...
-        'TimeSpan', 1e4, ...
-        'TimeUnits', 'None', ...
-        'YLimits', [-1 1]);
-end
 
 %% Matched Filter (MF)
 mf  = RXFILT.coeffs.Numerator;
@@ -118,102 +93,21 @@ rxSample = step(RXFILT,rxSig);
 
 rxSampleDiff = filter(dmf, 1, rxSig);
 
-%% Decisions without Timing Correction
+%% Decoder Inputs (MF Downsampled Output) without Timing Correction
 scatterplot(downsample(rxSample, L), 2)
 title('No Timing Correction');
 
-%% Decisions based on MLTED Timing Recovery
-k         = 1;
-strobe    = 0;
-mu_next   = 0;
-CNT_next  = 1;
-vi        = 0;
+%% Decoder Inputs after ML Timing Recovery
 
-for n=2:length(rxSig)
-
-    % Update values
-    CNT = CNT_next;
-    mu  = mu_next;
-
-    % Debug using scope
-    if (debug_counter)
-        step(hTScopeCounter, mu);
-    end
-
-    % Parallel Linear Interpolators (for MF and dMF)
-    if strobe == 1
-        m_k   = n-1; % Basepoint index (the index before the underflow)
-
-        % Interpolants (See Eq. 8.61)
-        xI    = mu * rxSample(m_k + 1) + (1 - mu) * rxSample(m_k);
-        xdotI = mu * rxSampleDiff(m_k + 1) + (1 - mu) * rxSampleDiff(m_k);
-
-        % Timing Error Detector Output:
-        e     = sign(xI)*xdotI;
-
-        % Save interpolant for MF output, Timing Error and Fractional
-        % Interval for plotting:
-        xx(k)   = xI;
-        ee(k)   = e;
-        mu_k(k) = mu;
-
-        % Update Interpolant Index
-        k = k+1;
-
-        % Also optionally debug interpolant for MF output using scope
-        if (debug_const)
-            step(hScope, xI)
-        end
-    else
-        % Upsample TED Output:
-        e = 0;
-    end
-
-    % Loop Filter
-    vp   = K1*e;       % Proportional
-    vi   = vi + K2*e;  % Integral
-    v(n) = vp + vi;    % PI Output
-
-    % Modulo-1 Counter
-    W        = 1/L + v(n);      % Adjust Counter Step
-    CNT_next = mod(CNT - W, 1); % Next Count (Modulo-1)
-
-    % Whenever CNT < W, an underflow occurs (CNT_next wraps). The underflow
-    % of the counter is indicated by the strobe and should be used as the
-    % basepoint index by the interpolator.
-    if (CNT < W)
-        strobe = 1;
-        mu_next = CNT/W;
-    else
-        strobe = 0;
-        mu_next = mu;
-    end
-
-end
+[ xx ] = symTimingLoop(L, rxSample, rxSampleDiff, K1, K2, ...
+                       debug_tl_static, debug_tl_runtime);
 
 %% Plots
 
 scatterplot(xx, 2)
 title('Using MLTED Timing Recovery');
 
-figure
-plot(ee)
-ylabel('Timing Error $e(t)$', 'Interpreter', 'latex')
-xlabel('Symbol $k$', 'Interpreter', 'latex')
-
-figure
-plot(v)
-title('PI Controller Output')
-ylabel('$v(n)$', 'Interpreter', 'latex')
-xlabel('Sample $n$', 'Interpreter', 'latex')
-
-figure
-plot(mu_k)
-title('Fractional Error')
-ylabel('$\mu(k)$', 'Interpreter', 'latex')
-xlabel('Symbol $k$', 'Interpreter', 'latex')
-
-%% Decisions based on MATLAB Timing Error Correction
+%% Decoder Inputs using MATLAB's Timing Error Correction
 
 rxSync = step(SYMSYNC,rxSample);
 scatterplot(rxSync(1001:end),2)
