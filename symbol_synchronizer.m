@@ -16,7 +16,8 @@ timeOffset = 5;        % Delay (in samples) added
 rcDelay  = 10;         % Raised cosine (combined Tx/Rx) delay
 SNR      = 25;         % Target SNR
 Ex       = 1;          % Average symbol energy
-TED      = 'MLTED';    % TED Type
+TED      = 'MLTED';    % TED Type (currently only 'MLTED' is supported)
+intpl    = 0;          % 0) Linear; 1) Polyphase Interpolator
 
 %% System Objects
 
@@ -99,7 +100,7 @@ title('No Timing Correction');
 
 %% Decoder Inputs after ML Timing Recovery
 
-[ xx ] = symTimingLoop(L, rxSample, rxSampleDiff, K1, K2, ...
+[ xx ] = symTimingLoop(intpl, L, rxSample, rxSampleDiff, K1, K2, ...
                        debug_tl_static, debug_tl_runtime);
 
 % Scatter Plot

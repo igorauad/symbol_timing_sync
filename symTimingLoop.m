@@ -1,10 +1,11 @@
-function [ xx ] = symTimingLoop(L, mfOut, dMfOut, K1, K2, debug_s, debug_r)
+function [ xx ] = symTimingLoop(intpl, L, mfOut, dMfOut, K1, K2, debug_s, debug_r)
 % Symbol Timing Loop
 % Implements Symbol Timing Recovery using a Maximum-likelihood (ML) Timing
 % Error Detector (ML-TED), a Proportional-plus-integrator (PI) Controller,
 % a Linear Interpolator and a Modulo-1 Counter as Interpolator Controller.
 %
 % Input Arguments:
+% intpl   -> Defines which interpolator should be used
 % L       -> Oversampling Factor
 % mfOut   -> MF output sequence sampled at L samples/symbol
 % dMfOut  -> Derivative MF output sequence sampled at L samples/symbol
@@ -14,7 +15,7 @@ function [ xx ] = symTimingLoop(L, mfOut, dMfOut, K1, K2, debug_s, debug_r)
 % debug_r -> Opens scope objects for run-time debugging of loop iterations
 %
 %
-%   References: 
+%   References:
 %   [1] Michael Rice, Digital Communications - A Discrete-Time Approach.
 %   New York: Prentice Hall, 2008.
 
@@ -23,10 +24,14 @@ if (nargin < 6)
     debug_r = 0;
 end
 
+interpChoice = intpl;
+
 %% Optional System Objects for Step-by-step Debugging of the Loop
 
 % Constellation Diagram
 if (debug_r)
+    M = 4;
+    Ex = 1;
     hScope = comm.ConstellationDiagram(...
         'SymbolsToDisplaySource', 'Property',...
         'SamplesPerSymbol', 1, ...
@@ -68,6 +73,20 @@ mu_next   = 0;
 CNT_next  = 1;
 vi        = 0;
 
+if (interpChoice == 1)
+    % Fixed Parameters
+    interpFactor  = 32;    % Interpolation factor
+    Pintfilt      = 4;     % Neighbor samples weighted by the interp filter
+    bandlimFactor = 0.5;   % Bandlimitedness of the interpolated sequence
+
+    % Design Polyphase Interpolator Filter Bank
+    [ E ] = polyphaseFilterBank(L, interpFactor, Pintfilt, bandlimFactor);
+
+    % Buffers for MF and dMF output samples
+    mfOutBuf  = zeros(size(E, 2), 1);
+    dMfOutBuf = zeros(size(E, 2), 1);
+end
+
 for n=2:length(mfOut)
 
     % Update values
@@ -79,13 +98,36 @@ for n=2:length(mfOut)
         step(hTScopeCounter, mu);
     end
 
+    % When using the polyphase interpolator keep track of the interpolator
+    % input buffers at the sample rate (not only within strobes)
+    if (interpChoice == 1) % Polyphase interpolator
+        % Update interpolator input buffers
+        mfOutBuf  = [mfOut(n); mfOutBuf(1:end-1)];
+        dMfOutBuf = [dMfOut(n); dMfOutBuf(1:end-1)];
+    end
+
     % Parallel Linear Interpolators (for MF and dMF)
     if strobe == 1
         m_k   = n-1; % Basepoint index (the index before the underflow)
 
-        % Interpolants (See Eq. 8.61)
-        xI    = mu * mfOut(m_k + 1) + (1 - mu) * mfOut(m_k);
-        xdotI = mu * dMfOut(m_k + 1) + (1 - mu) * dMfOut(m_k);
+        switch (interpChoice)
+            case 0 % Linear Interpolator
+                % Interpolants (See Eq. 8.61)
+                xI    = mu * mfOut(m_k + 1) + (1 - mu) * mfOut(m_k);
+                xdotI = mu * dMfOut(m_k + 1) + (1 - mu) * dMfOut(m_k);
+            case 1
+                % Chose the output of one out of L polyphase subfilters.
+                % Use mu(k) (the k-th fractional interval) to pick the
+                % appropriate subfilter.
+                chosenBranch = round((L-1)*mu) + 1;
+
+                % Interpolants (from the chosen subfilter):
+                xI    = E(chosenBranch, :) * mfOutBuf;
+                xdotI = E(chosenBranch, :) * dMfOutBuf;
+        end
+
+        % Polyphase interpolator
+        % All subfilters filter the same samples (low-rate input sequence)
 
         % Timing Error Detector Output:
         e     = sign(xI)*xdotI;
@@ -152,4 +194,3 @@ if (debug_s)
 end
 
 end
-
