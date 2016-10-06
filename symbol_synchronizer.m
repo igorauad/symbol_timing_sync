@@ -2,15 +2,15 @@ clearvars, clc, %close all
 
 %% Debug Configuration
 
-debug_const   = 1;    % Debug Constellation
-debug_counter = 1;    % Debug interpolator controller (counter)
+debug_const   = 0;    % Debug Constellation
+debug_counter = 0;    % Debug interpolator controller (counter)
 
 %% Parameters
 L        = 32;         % Oversampling factor
 M        = 4;          % Constellation order
 nSymbols = 10000;      % Number of transmit symbols
 Bn_Ts    = 0.01;       % PLL noise bandwidth (Bn) times symbol period (Ts)
-xi       = 1/sqrt(2);  % PLL Damping Factor
+eta      = 1/sqrt(2);  % PLL Damping Factor
 rollOff  = 0.5;        % Pulse shaping roll-off factor
 timeOffset = 5;        % Delay (in samples) added
 rcDelay  = 10;         % Raised cosine (combined Tx/Rx) delay
@@ -91,11 +91,12 @@ Kp = K*Ex*Kp;
 
 % Counter Gain
 K0 = -1;
-% Note: this is analogous to VCO or DDS gain, in the context of timing sync
-% loop:
+% Note: this is analogous to VCO or DDS gain, but in the context of timing
+% recovery loop.
 
 % PI Controller Gains:
-[ K1, K2 ] = timingLoopPIConstants(Kp, K0, xi, Bn_Ts, L)
+[ K1, K2 ] = timingLoopPIConstants(Kp, K0, eta, Bn_Ts, L)
+% Note: MATLAB's implementations uses a default value of Kp = 2.7;
 
 %% Random PSK Symbols
 data    = randi([0 M-1], nSymbols, 1);
@@ -134,32 +135,44 @@ for n=2:length(rxSig)
     CNT = CNT_next;
     mu  = mu_next;
 
+    % Debug using scope
     if (debug_counter)
         step(hTScopeCounter, mu);
     end
 
+    % Parallel Interpolators (for MF and dMF)
     if underflow == 1
-        xI = mu * rxSample(n) + (1 - mu) * rxSample(n-1);
+        xI    = mu * rxSample(n) + (1 - mu) * rxSample(n-1);
         xdotI = mu * rxSampleDiff(n) + (1 - mu) * rxSampleDiff(n-1);
-        e = sign(xI)*xdotI;
+
+        % Timing Error Detector Output:
+        e     = sign(xI)*xdotI;
+
+        % Save interpolant for MF output, Timing Error and Fractional
+        % Interval for plotting:
         xx(k)   = xI;
         ee(k)   = e;
         mu_k(k) = mu;
         k = k+1;
+
+        % Also optionally debug interpolant for MF output using scope
         if (debug_const)
             step(hScope, xI)
         end
     else
-        % Upsample:
+        % Upsample TED Output:
         e = 0;
     end
 
-    vp = K1*e;
-    vi = vi + K2*e;
-    v(n) = vp + vi;
-    W = 1/L + v(n);
+    % Loop Filter
+    vp   = K1*e;       % Proportional
+    vi   = vi + K2*e;  % Integral
+    v(n) = vp + vi;    % PI Output
 
-    CNT_next = CNT - W;
+    % Modulo-1 Counter
+    W        = 1/L + v(n);  % Counter Step
+    CNT_next = CNT - W;     % Next Count
+
     if (CNT_next < 0)
         CNT_next = 1 + CNT_next;
         underflow = 1;
@@ -170,25 +183,30 @@ for n=2:length(rxSig)
     end
 end
 
+
+%% Plots
+
 scatterplot(xx, 2)
+title('Using MLTED Timing Recovery');
 
 figure
 plot(ee)
 ylabel('Timing Error $e(t)$', 'Interpreter', 'latex')
-xlabel('$t/T_s$', 'Interpreter', 'latex')
+xlabel('Symbol $k$', 'Interpreter', 'latex')
 
 figure
 plot(v)
 title('PI Controller Output')
 ylabel('$v(n)$', 'Interpreter', 'latex')
-xlabel('$t/T$', 'Interpreter', 'latex')
+xlabel('Sample $n$', 'Interpreter', 'latex')
 
 figure
 plot(mu_k)
 title('Fractional Error')
 ylabel('$\mu(k)$', 'Interpreter', 'latex')
-xlabel('$t/T$', 'Interpreter', 'latex')
+xlabel('Symbol $k$', 'Interpreter', 'latex')
 %% Decisions based on MATLAB Timing Error Correction
 
 rxSync = step(SYMSYNC,rxSample);
 scatterplot(rxSync(1001:end),2)
+title('Using MATLABs Zero-Crossing TED');
