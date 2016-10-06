@@ -52,6 +52,15 @@ end
 
 %% Timing Recovery Loop
 
+% Constants
+nSamples = length(mfOut);
+nSymbols = ceil(nSamples / L);
+
+% Preallocate
+xx   = zeros(nSymbols, 1);
+ee   = zeros(nSymbols, 1);
+mu_k = zeros(nSymbols, 1);
+
 % Initialize
 k         = 1;
 strobe    = 0;

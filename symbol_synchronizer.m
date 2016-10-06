@@ -44,7 +44,7 @@ mf  = RXFILT.coeffs.Numerator;
 
 %% dMF
 % IMPORTANT: use central-differences to match the results in the book
-h = (1)*[0.5 0 -0.5]; % kernel function
+h = [0.5 0 -0.5]; % kernel function
 central_diff_mf = conv(h, mf);
 % Skip the filter delay
 dmf = central_diff_mf(2:1+length(mf));
@@ -102,13 +102,14 @@ title('No Timing Correction');
 [ xx ] = symTimingLoop(L, rxSample, rxSampleDiff, K1, K2, ...
                        debug_tl_static, debug_tl_runtime);
 
-%% Plots
-
+% Scatter Plot
 scatterplot(xx, 2)
 title('Using MLTED Timing Recovery');
 
 %% Decoder Inputs using MATLAB's Timing Error Correction
 
 rxSync = step(SYMSYNC,rxSample);
+
+% Scatter Plot
 scatterplot(rxSync(1001:end),2)
 title('Using MATLABs Zero-Crossing TED');

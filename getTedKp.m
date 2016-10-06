@@ -20,7 +20,7 @@ r_p = rcosine(1, L, 'normal', rollOff, delay);
 
 %% Derivative of the Nyquist pulse
 % IMPORTANT: use central-differences to match the results in the book
-h = [1 0 -1]; % kernel function
+h = [0.5 0 -0.5]; % kernel function
 % Central-differences:
 r_p_diff = conv(h, r_p);
 % Skip the filter delay
@@ -28,6 +28,7 @@ r_p_diff = r_p_diff(2:1+length(r_p));
 
 %% TED Gain
 
+% Assume constant gain and unitary average symbol energy
 K  = 1;
 Ex = 1;
 
@@ -42,7 +43,7 @@ switch (TED)
         g = K*Ex*r_p_diff(fliplr(ind));
         % Note 1: The order is reversed (fliplr is used), because r_p_diff
         % in "g" is a function of "-tau_e"
-        % Note 2: g(L/2) should be roughly 0
+        % Note 2: g(L/2), the central value, should be roughly 0
 
     case 'ELTED' % Early-late
         % The S-Curve is
@@ -51,7 +52,7 @@ switch (TED)
     case 'ZCTED'
         % The S-Curve is identical to the ELTED
         g = K*Ex*( r_p(fliplr(ind) + L/2) - r_p(fliplr(ind) - L/2) );
-    case 'GTED'
+    case 'GTED'  % Gardner TED
     case 'MMTED' % Mueller-Muller
 end
 
