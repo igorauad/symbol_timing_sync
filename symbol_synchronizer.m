@@ -1,4 +1,4 @@
-clearvars, clc, %close all
+clearvars, clc, close all
 
 %% Debug Configuration
 
@@ -86,7 +86,8 @@ else
     data = randi([0 M-1], nSymbols, 1);
 end
 
-modSig  = real(modnorm(pammod(0:M-1,M), 'avpow', Ex) * pammod(data, M));
+symScale = modnorm(pammod(0:M-1,M), 'avpow', Ex);
+modSig  = real(symScale * pammod(data, M));
 % Important, ensure to make the average symbol energy unitary, otherwise
 % the PLL constants must be altered (because Kp, the TED gain, scales).
 
@@ -110,8 +111,8 @@ title('No Timing Correction');
 
 %% Decoder Inputs after ML Timing Recovery
 
-[ xx ] = symTimingLoop(intpl, L, rxSample, rxSampleDiff, K1, K2, ...
-                       debug_tl_static, debug_tl_runtime);
+[ xx ] = symTimingLoop(intpl, L, rxSample, rxSampleDiff, K1, K2, M, ...
+                       symScale, debug_tl_static, debug_tl_runtime);
 
 % Scatter Plot
 scatterplot(xx)

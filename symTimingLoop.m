@@ -1,4 +1,4 @@
-function [ xx ] = symTimingLoop(intpl, L, mfOut, dMfOut, K1, K2, debug_s, debug_r)
+function [ xx ] = symTimingLoop(intpl, L, mfOut, dMfOut, K1, K2, M, Ksym, debug_s, debug_r)
 % Symbol Timing Loop
 % Implements Symbol Timing Recovery using a Maximum-likelihood (ML) Timing
 % Error Detector (ML-TED), a Proportional-plus-integrator (PI) Controller,
@@ -11,6 +11,8 @@ function [ xx ] = symTimingLoop(intpl, L, mfOut, dMfOut, K1, K2, debug_s, debug_
 % dMfOut  -> Derivative MF output sequence sampled at L samples/symbol
 % K1      -> Proportional Gain
 % K2      -> Integrator Gain
+% M       -> Modulation Order
+% Ksym    -> Symbol scaling factor that must be undone prior to slicing
 % debug_s -> Shows static debug plots after loop processing
 % debug_r -> Opens scope objects for run-time debugging of loop iterations
 %
@@ -19,7 +21,7 @@ function [ xx ] = symTimingLoop(intpl, L, mfOut, dMfOut, K1, K2, debug_s, debug_
 %   [1] Michael Rice, Digital Communications - A Discrete-Time Approach.
 %   New York: Prentice Hall, 2008.
 
-if (nargin < 6)
+if (nargin < 8)
     debug_s = 0;
     debug_r = 0;
 end
@@ -30,14 +32,12 @@ interpChoice = intpl;
 
 % Constellation Diagram
 if (debug_r)
-    M = 4;
-    Ex = 1;
     hScope = comm.ConstellationDiagram(...
         'SymbolsToDisplaySource', 'Property',...
         'SamplesPerSymbol', 1, ...
         'MeasurementInterval', 256, ...
         'ReferenceConstellation', ...
-        modnorm(pammod(0:M-1,M), 'avpow', Ex) * pammod(0:(M-1), M));
+        Ksym * pammod(0:(M-1), M));
     hScope.XLimits = [-1 1]*sqrt(M);
     hScope.YLimits = [-1 1]*sqrt(M);
 end
@@ -130,7 +130,10 @@ for n=2:length(mfOut)
         % All subfilters filter the same samples (low-rate input sequence)
 
         % Timing Error Detector Output:
-        e     = sign(xI)*xdotI;
+        e = pamSlice(xI/Ksym, M)*xdotI;
+        % Note: the error could be alternatively computed by
+        % "sign(xI)*xdotI". The difference is that this would scale the
+        % S-Curve, as commented for Eq. 8.29.
 
         % Save interpolant for MF output, Timing Error and Fractional
         % Interval for plotting:
@@ -193,4 +196,15 @@ if (debug_s)
     xlabel('Symbol $k$', 'Interpreter', 'latex')
 end
 
+end
+
+function [z] = pamSlice(y, M)
+    % Move the real part of input signal; scale appropriately and round the
+    % values to get ideal constellation index
+    z_index = round( ((real(y) + (M-1)) ./ 2) );
+    % clip the values that are outside the valid range
+    z_index(z_index <= -1) = 0;
+    z_index(z_index > (M-1)) = M-1;
+    % Regenerate Symbol (slice)
+    z = z_index*2 - (M-1);
 end
