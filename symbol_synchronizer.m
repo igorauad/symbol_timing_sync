@@ -11,13 +11,13 @@ M        = 4;          % Constellation order
 N        = 2;          % Dimensions per symbol (1 for PAM, 2 for QAM)
 nSymbols = 10000;      % Number of transmit symbols
 Bn_Ts    = 0.01;       % PLL noise bandwidth (Bn) times symbol period (Ts)
-eta      = 1/sqrt(2);  % PLL Damping Factor
+eta      = 1;          % PLL Damping Factor
 rollOff  = 0.5;        % Pulse shaping roll-off factor
 timeOffset = 5;        % Delay (in samples) added
 rcDelay  = 10;         % Raised cosine (combined Tx/Rx) delay
 SNR      = 25;         % Target SNR
 Ex       = 1;          % Average symbol energy
-TED      = 'MLTED';    % TED Type (choose 'MLTED' or 'ZCTED')
+TED      = 'ZCTED';    % TED Type (choose 'MLTED' or 'ZCTED')
 intpl    = 0;          % 0) Linear; 1) Polyphase Interpolator
 forceZc  = 0;          % Use to force zero-crossings and debug self-noise
 
