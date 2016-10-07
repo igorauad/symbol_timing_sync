@@ -114,14 +114,14 @@ title('No Timing Correction');
 [ xx ] = symTimingLoop(TED, intpl, L, rxSample, rxSampleDiff, K1, K2, ...
                        M, symScale, debug_tl_static, debug_tl_runtime);
 
-% Scatter Plot
-scatterplot(xx)
-title('Using MLTED Timing Recovery');
+% Scatter Plot of the last 10% symbols (to skip the transitory)
+scatterplot(xx(end-round(0.1*nSymbols):end))
+title(sprintf('Using %s Timing Recovery', TED));
 
 %% Decoder Inputs using MATLAB's Timing Error Correction
 
 rxSync = step(SYMSYNC,rxSample);
 
-% Scatter Plot
-scatterplot(rxSync(1001:end))
+% Scatter Plot of the last 10% symbols (to skip the transitory)
+scatterplot(rxSync(end-round(0.1*nSymbols):end))
 title('Using MATLABs Zero-Crossing TED');
