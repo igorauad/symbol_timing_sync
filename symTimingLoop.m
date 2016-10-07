@@ -130,7 +130,7 @@ for n=2:length(mfOut)
         % All subfilters filter the same samples (low-rate input sequence)
 
         % Timing Error Detector Output:
-        e = pamSlice(xI/Ksym, M)*xdotI;
+        e = Ksym*pamSlice(xI/Ksym, M)*xdotI;
         % Note: the error could be alternatively computed by
         % "sign(xI)*xdotI". The difference is that this would scale the
         % S-Curve, as commented for Eq. 8.29.
