@@ -7,7 +7,8 @@ debug_tl_runtime = 0; % Open scope for debugging of sync loop iterations
 
 %% Parameters
 L        = 32;         % Oversampling factor
-M        = 2;          % Constellation order
+M        = 4;          % Constellation order
+N        = 2;          % Dimensions per symbol (1 for PAM, 2 for QAM)
 nSymbols = 10000;      % Number of transmit symbols
 Bn_Ts    = 0.01;       % PLL noise bandwidth (Bn) times symbol period (Ts)
 eta      = 1/sqrt(2);  % PLL Damping Factor
@@ -86,8 +87,15 @@ else
     data = randi([0 M-1], nSymbols, 1);
 end
 
-symScale = modnorm(pammod(0:M-1,M), 'avpow', Ex);
-modSig  = real(symScale * pammod(data, M));
+if (N==2)
+    const  = qammod(0:M-1,M);
+    Ksym   = modnorm(const, 'avpow', Ex);
+    modSig = Ksym * qammod(data, M);
+else
+    const  = pammod(0:M-1,M);
+    Ksym   = modnorm(const, 'avpow', Ex);
+    modSig = real(Ksym * pammod(data, M));
+end
 % Important, ensure to make the average symbol energy unitary, otherwise
 % the PLL constants must be altered (because Kp, the TED gain, scales).
 
@@ -112,7 +120,7 @@ title('No Timing Correction');
 %% Decoder Inputs after ML Timing Recovery
 
 [ xx ] = symTimingLoop(TED, intpl, L, rxSample, rxSampleDiff, K1, K2, ...
-                       M, symScale, debug_tl_static, debug_tl_runtime);
+                       const, Ksym, debug_tl_static, debug_tl_runtime);
 
 % Scatter Plot of the last 10% symbols (to skip the transitory)
 scatterplot(xx(end-round(0.1*nSymbols):end))

@@ -1,4 +1,4 @@
-function [ xx ] = symTimingLoop(TED, intpl, L, mfOut, dMfOut, K1, K2, M, Ksym, debug_s, debug_r)
+function [ xx ] = symTimingLoop(TED, intpl, L, mfOut, dMfOut, K1, K2, const, Ksym, debug_s, debug_r)
 % Symbol Timing Loop
 % ---------------------
 % Implements Symbol Timing Recovery with configurable Timing Error Detector
@@ -16,7 +16,7 @@ function [ xx ] = symTimingLoop(TED, intpl, L, mfOut, dMfOut, K1, K2, M, Ksym, d
 % dMfOut  -> Derivative MF output sequence sampled at L samples/symbol
 % K1      -> Proportional Gain
 % K2      -> Integrator Gain
-% M       -> Modulation Order
+% const   -> Symbol constellation
 % Ksym    -> Symbol scaling factor that must be undone prior to slicing
 % debug_s -> Shows static debug plots after loop processing
 % debug_r -> Opens scope objects for run-time debugging of loop iterations
@@ -31,7 +31,11 @@ if (nargin < 8)
     debug_r = 0;
 end
 
+% Interpolator Choice
 interpChoice = intpl;
+
+% Modulation order
+M = numel(const);
 
 %% Optional System Objects for Step-by-step Debugging of the Loop
 
@@ -42,9 +46,9 @@ if (debug_r)
         'SamplesPerSymbol', 1, ...
         'MeasurementInterval', 256, ...
         'ReferenceConstellation', ...
-        Ksym * pammod(0:(M-1), M));
-    hScope.XLimits = [-1 1]*sqrt(M);
-    hScope.YLimits = [-1 1]*sqrt(M);
+        Ksym * const);
+    hScope.XLimits = [-1.5 1.5]*max(real(const));
+    hScope.YLimits = [-1.5 1.5]*max(imag(const));
 end
 
 if (debug_r)
@@ -136,18 +140,20 @@ for n=2:length(mfOut)
         end
 
         %% Timing Error Detector:
-        a_hat_k = Ksym*pamSlice(xI/Ksym, M); % Data Symbol Estimate â(k)
+        a_hat_k = Ksym*slice(xI/Ksym, M); % Data Symbol Estimate â(k)
         switch (TED)
             case 'MLTED' % Maximum Likelihood TED
-                e = a_hat_k * xdotI;
+                e = real(a_hat_k) * real(xdotI) + ...
+                    imag(a_hat_k) * imag(xdotI);
                 % Note: the error could be alternatively computed by
                 % "sign(xI)*xdotI". The difference is that this would scale
                 % the S-Curve, as commented for Eq. 8.29.
             case 'ZCTED' % Zero-crossing TED
                 % Previous Data Symbol Estimate â(k-1)
                 if (k > 1)
-                    a_hat_prev = Ksym*pamSlice(xx(k-1)/Ksym, M);
-                    e = mfOut(m_k - L/2 + 1) * (a_hat_prev - a_hat_k);
+                    a_hat_prev = Ksym*slice(xx(k-1)/Ksym, M);
+                    e = real(mfOut(m_k - L/2)) * (real(a_hat_prev) - real(a_hat_k)) + ...
+                        imag(mfOut(m_k - L/2)) * (imag(a_hat_prev) - imag(a_hat_k));
                     % m_k - L/2 + 1 is the midpoint index between the
                     % current and the previous symbols
                 else
@@ -218,13 +224,33 @@ end
 
 end
 
-function [z] = pamSlice(y, M)
-    % Move the real part of input signal; scale appropriately and round the
-    % values to get ideal constellation index
-    z_index = round( ((real(y) + (M-1)) ./ 2) );
-    % clip the values that are outside the valid range
-    z_index(z_index <= -1) = 0;
-    z_index(z_index > (M-1)) = M-1;
-    % Regenerate Symbol (slice)
-    z = z_index*2 - (M-1);
+% Function that maps Rx symbols into constellation points
+function [z] = slice(y, M)
+    if (isreal(y))
+        % Move the real part of input signal; scale appropriately and round the
+        % values to get ideal constellation index
+        z_index = round( ((real(y) + (M-1)) ./ 2) );
+        % clip the values that are outside the valid range
+        z_index(z_index <= -1) = 0;
+        z_index(z_index > (M-1)) = M-1;
+        % Regenerate Symbol (slice)
+        z = z_index*2 - (M-1);
+    else
+        M_bar = sqrt(M);
+        % Move the real part of input signal; scale appropriately and round the
+        % values to get ideal constellation index
+        z_index_re = round( ((real(y) + (M_bar - 1)) ./ 2) );
+        % Move the imaginary part of input signal; scale appropriately and
+        % round the values to get ideal constellation index
+        z_index_im = round( ((imag(y) + (M_bar - 1)) ./ 2) );
+
+        % clip the values that are outside the valid range
+        z_index_re(z_index_re <= -1)       = 0;
+        z_index_re(z_index_re > (M_bar-1)) = M_bar-1;
+        z_index_im(z_index_im <= -1)       = 0;
+        z_index_im(z_index_im > (M_bar-1)) = M_bar-1;
+
+        % Regenerate Symbol (slice)
+        z = (z_index_re*2 - (M_bar-1)) + 1j*(z_index_im*2 - (M_bar-1));
+    end
 end
