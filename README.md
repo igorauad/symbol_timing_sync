@@ -2,11 +2,12 @@
 
 Several scripts used to study the material from the Book *" Digital Communications: A Discrete-Time Approach"*, by *Michael Rice*
 
-Main simulation implements Symbol Timing Recovery using a **Maximum-likelihood
-(ML) Timing Error Detector (ML-TED)**, a **Proportional-plus-integrator (PI)
-Controller**, an interpolator that can be chosen as the Linear Interpolator or
-the **Polyphase Interpolator** and a **Modulo-1 Counter** as **Interpolator
-Controller**.
+Main simulation implements Symbol Timing Recovery using either a
+**Maximum-likelihood (ML) Timing Error Detector (ML-TED)** or a **Zero-Crossing
+TED (ZC-TED)**. The loop filter is a **Proportional-plus-integrator (PI)
+Controller** and the interpolator can be chosen as a Linear Interpolator or a
+**Polyphase Interpolator**. The **Interpolator Controller** is a **Modulo-1
+Counter**.
 
 | File        | Description         |
 | ------------- |:--------------|

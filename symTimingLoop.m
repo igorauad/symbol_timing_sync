@@ -1,10 +1,15 @@
-function [ xx ] = symTimingLoop(intpl, L, mfOut, dMfOut, K1, K2, M, Ksym, debug_s, debug_r)
+function [ xx ] = symTimingLoop(TED, intpl, L, mfOut, dMfOut, K1, K2, M, Ksym, debug_s, debug_r)
 % Symbol Timing Loop
-% Implements Symbol Timing Recovery using a Maximum-likelihood (ML) Timing
-% Error Detector (ML-TED), a Proportional-plus-integrator (PI) Controller,
-% a Linear Interpolator and a Modulo-1 Counter as Interpolator Controller.
+% ---------------------
+% Implements Symbol Timing Recovery with configurable Timing Error Detector
+% (TED) and Interpolator, using both a Proportional-plus-integrator (PI)
+% Controller and a Modulo-1 Counter to control the interpolator. The TED
+% can be configured as a Maximum-likelihood (ML) TED (ML-TED) or
+% Zero-Crossing TED (ZCTED), whereas the interpolator can be a Linear
+% Interpolator or a polyphase interpolator.
 %
 % Input Arguments:
+% TED     -> Defines which TED should be used
 % intpl   -> Defines which interpolator should be used
 % L       -> Oversampling Factor
 % mfOut   -> MF output sequence sampled at L samples/symbol
@@ -110,12 +115,16 @@ for n=2:length(mfOut)
     if strobe == 1
         m_k   = n-1; % Basepoint index (the index before the underflow)
 
+        %% Interpolator
         switch (interpChoice)
             case 0 % Linear Interpolator
                 % Interpolants (See Eq. 8.61)
                 xI    = mu * mfOut(m_k + 1) + (1 - mu) * mfOut(m_k);
                 xdotI = mu * dMfOut(m_k + 1) + (1 - mu) * dMfOut(m_k);
-            case 1
+            case 1 % Polyphase interpolator
+                % All subfilters filter the same samples (low-rate input
+                % sequence)
+
                 % Chose the output of one out of L polyphase subfilters.
                 % Use mu(k) (the k-th fractional interval) to pick the
                 % appropriate subfilter.
@@ -126,14 +135,25 @@ for n=2:length(mfOut)
                 xdotI = E(chosenBranch, :) * dMfOutBuf;
         end
 
-        % Polyphase interpolator
-        % All subfilters filter the same samples (low-rate input sequence)
-
-        % Timing Error Detector Output:
-        e = Ksym*pamSlice(xI/Ksym, M)*xdotI;
-        % Note: the error could be alternatively computed by
-        % "sign(xI)*xdotI". The difference is that this would scale the
-        % S-Curve, as commented for Eq. 8.29.
+        %% Timing Error Detector:
+        a_hat_k = Ksym*pamSlice(xI/Ksym, M); % Data Symbol Estimate â(k)
+        switch (TED)
+            case 'MLTED' % Maximum Likelihood TED
+                e = a_hat_k * xdotI;
+                % Note: the error could be alternatively computed by
+                % "sign(xI)*xdotI". The difference is that this would scale
+                % the S-Curve, as commented for Eq. 8.29.
+            case 'ZCTED' % Zero-crossing TED
+                % Previous Data Symbol Estimate â(k-1)
+                if (k > 1)
+                    a_hat_prev = Ksym*pamSlice(xx(k-1)/Ksym, M);
+                    e = mfOut(m_k - L/2 + 1) * (a_hat_prev - a_hat_k);
+                    % m_k - L/2 + 1 is the midpoint index between the
+                    % current and the previous symbols
+                else
+                    e = 0;
+                end
+        end
 
         % Save interpolant for MF output, Timing Error and Fractional
         % Interval for plotting:
@@ -153,12 +173,12 @@ for n=2:length(mfOut)
         e = 0;
     end
 
-    % Loop Filter
+    %% Loop Filter
     vp   = K1*e;       % Proportional
     vi   = vi + K2*e;  % Integral
     v(n) = vp + vi;    % PI Output
 
-    % Modulo-1 Counter
+    %% Modulo-1 Counter
     W        = 1/L + v(n);      % Adjust Counter Step
     CNT_next = mod(CNT - W, 1); % Next Count (Modulo-1)
 
