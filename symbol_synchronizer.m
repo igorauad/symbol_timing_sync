@@ -81,7 +81,7 @@ if (forceZc)
     % Force zero-crossings within the transmit symbols. Use to eliminate
     % the problem of self-noise and debug the operation of the loop
     data          = zeros(nSymbols, 1);
-    data(1:2:end) = 1;
+    data(1:2:end) = M-1;
 else
     data = randi([0 M-1], nSymbols, 1);
 end
