@@ -14,6 +14,7 @@ function [ xx ] = symTimingLoop(TED, intpl, L, mfOut, dMfOut, K1, K2, const, Ksy
 % L       -> Oversampling Factor
 % mfOut   -> MF output sequence sampled at L samples/symbol
 % dMfOut  -> Derivative MF output sequence sampled at L samples/symbol
+%            (used only for the Maximum-Likelihood TED)
 % K1      -> Proportional Gain
 % K2      -> Integrator Gain
 % const   -> Symbol constellation
@@ -51,6 +52,7 @@ if (debug_r)
     hScope.YLimits = [-1.5 1.5]*max(imag(const));
 end
 
+% Time scope used to debug the fractional error
 if (debug_r)
     hTScopeCounter = dsp.TimeScope(...
         'Title', 'Fractional Inverval', ...
@@ -62,6 +64,21 @@ if (debug_r)
         'TimeSpan', 1e4, ...
         'TimeUnits', 'None', ...
         'YLimits', [-1 1]);
+end
+
+%% If applicable, design a polyphase filter bank
+if (interpChoice == 1)
+    % Fixed Parameters
+    interpFactor  = 32;    % Interpolation factor
+    Pintfilt      = 4;     % Neighbor samples weighted by the interp filter
+    bandlimFactor = 0.5;   % Bandlimitedness of the interpolated sequence
+
+    % Design Polyphase Interpolator Filter Bank
+    [ E ] = polyphaseFilterBank(L, interpFactor, Pintfilt, bandlimFactor);
+
+    % Buffers for MF and dMF output samples
+    mfOutBuf  = zeros(size(E, 2), 1);
+    dMfOutBuf = zeros(size(E, 2), 1);
 end
 
 %% Timing Recovery Loop
@@ -82,20 +99,6 @@ mu_next   = 0;
 CNT_next  = 1;
 vi        = 0;
 
-if (interpChoice == 1)
-    % Fixed Parameters
-    interpFactor  = 32;    % Interpolation factor
-    Pintfilt      = 4;     % Neighbor samples weighted by the interp filter
-    bandlimFactor = 0.5;   % Bandlimitedness of the interpolated sequence
-
-    % Design Polyphase Interpolator Filter Bank
-    [ E ] = polyphaseFilterBank(L, interpFactor, Pintfilt, bandlimFactor);
-
-    % Buffers for MF and dMF output samples
-    mfOutBuf  = zeros(size(E, 2), 1);
-    dMfOutBuf = zeros(size(E, 2), 1);
-end
-
 for n=2:length(mfOut)
 
     % Update values
@@ -115,11 +118,14 @@ for n=2:length(mfOut)
         dMfOutBuf = [dMfOut(n); dMfOutBuf(1:end-1)];
     end
 
-    % Parallel Linear Interpolators (for MF and dMF)
+    % When a strobe is signaled, compute the interpolants (once per symbol)
     if strobe == 1
         m_k   = n-1; % Basepoint index (the index before the underflow)
 
-        %% Interpolator
+        %% Parallel Interpolators
+        % NOTE: there are two parallel interpolators for the MF output and
+        % the dMF output. However, note the dMF interpolant is only
+        % required when using the MLTED.
         switch (interpChoice)
             case 0 % Linear Interpolator
                 % Interpolants (See Eq. 8.61)
@@ -149,13 +155,14 @@ for n=2:length(mfOut)
                 % "sign(xI)*xdotI". The difference is that this would scale
                 % the S-Curve, as commented for Eq. 8.29.
             case 'ZCTED' % Zero-crossing TED
-                % Previous Data Symbol Estimate â(k-1)
                 if (k > 1)
+                    % Previous Data Symbol Estimate â(k-1)
                     a_hat_prev = Ksym*slice(xx(k-1)/Ksym, M);
+                    % Timing Error
                     e = real(mfOut(m_k - L/2)) * (real(a_hat_prev) - real(a_hat_k)) + ...
                         imag(mfOut(m_k - L/2)) * (imag(a_hat_prev) - imag(a_hat_k));
-                    % m_k - L/2 + 1 is the midpoint index between the
-                    % current and the previous symbols
+                    % m_k - L/2 is the midpoint index between the current
+                    % and the previous symbols
                 else
                     e = 0;
                 end
@@ -175,7 +182,9 @@ for n=2:length(mfOut)
             step(hScope, xI)
         end
     else
-        % Upsample TED Output:
+        % For the iterations that the interpolant is not signaled, the
+        % error is made null. This is equivalent to upsampling the TED
+        % output.
         e = 0;
     end
 
@@ -216,7 +225,7 @@ if (debug_s)
     xlabel('Sample $n$', 'Interpreter', 'latex')
 
     figure
-    plot(mu_k)
+    plot(mu_k, '.')
     title('Fractional Error')
     ylabel('$\mu(k)$', 'Interpreter', 'latex')
     xlabel('Symbol $k$', 'Interpreter', 'latex')
