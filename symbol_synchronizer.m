@@ -24,26 +24,26 @@ forceZc  = 0;          % Use to force zero-crossings and debug self-noise
 %% System Objects
 
 % Tx Filter
-TXFILT  = comm.RaisedCosineTransmitFilter( ...
+TXFILT = comm.RaisedCosineTransmitFilter( ...
     'OutputSamplesPerSymbol', L, ...
     'RolloffFactor', rollOff, ...
     'FilterSpanInSymbols', rcDelay);
 
 % Rx Filter (MF)
-RXFILT  = comm.RaisedCosineReceiveFilter( ...
+RXFILT = comm.RaisedCosineReceiveFilter( ...
     'InputSamplesPerSymbol', L, ...
     'DecimationFactor',1, ...
     'RolloffFactor', rollOff, ...
     'FilterSpanInSymbols', rcDelay);
 
 % Digital Delay
-DELAY   = dsp.Delay(timeOffset);
+DELAY = dsp.Delay(timeOffset);
 
 % Symbol Synchronizer
 SYMSYNC = comm.SymbolSynchronizer('SamplesPerSymbol', L);
 
 %% Matched Filter (MF)
-mf  = RXFILT.coeffs.Numerator;
+mf = RXFILT.coeffs.Numerator;
 
 %% dMF
 % IMPORTANT: use central-differences to match the results in the book
@@ -81,7 +81,7 @@ K0 = -1;
 if (forceZc)
     % Force zero-crossings within the transmit symbols. Use to eliminate
     % the problem of self-noise and debug the operation of the loop
-    data          = zeros(nSymbols, 1);
+    data = zeros(nSymbols, 1);
     data(1:2:end) = M-1;
 else
     data = randi([0 M-1], nSymbols, 1);
@@ -100,11 +100,11 @@ end
 % the PLL constants must be altered (because Kp, the TED gain, scales).
 
 %%%%%%%%%%%%%%% Tx Filter  %%%%%%%%%%%%%%%
-txSig    = step(TXFILT,modSig);
+txSig = step(TXFILT, modSig);
 
 %%%%%%%%%%%%%%% Channel    %%%%%%%%%%%%%%%
-delaySig = step(DELAY,txSig);
-rxSig    = awgn(delaySig, SNR, 'measured');
+delaySig = step(DELAY, txSig);
+rxSig = awgn(delaySig, SNR, 'measured');
 
 %%%%%%%%%%%%%%% Rx filter  %%%%%%%%%%%%%%%
 rxSample = step(RXFILT,rxSig);
@@ -119,17 +119,17 @@ title('No Timing Correction');
 
 %% Decoder Inputs after ML Timing Recovery
 
-[ xx ] = symTimingLoop(TED, intpl, L, rxSample, rxSampleDiff, K1, K2, ...
+[ rxSync1 ] = symTimingLoop(TED, intpl, L, rxSample, rxSampleDiff, K1, K2, ...
                        const, Ksym, debug_tl_static, debug_tl_runtime);
 
 % Scatter Plot of the last 10% symbols (to skip the transitory)
-scatterplot(xx(end-round(0.1*nSymbols):end))
+scatterplot(rxSync1((end - round(0.1 * nSymbols)):end))
 title(sprintf('Using %s Timing Recovery', TED));
 
 %% Decoder Inputs using MATLAB's Timing Error Correction
 
-rxSync = step(SYMSYNC,rxSample);
+rxSync2 = step(SYMSYNC, rxSample);
 
 % Scatter Plot of the last 10% symbols (to skip the transitory)
-scatterplot(rxSync(end-round(0.1*nSymbols):end))
+scatterplot(rxSync2((end - round(0.1 * nSymbols)):end))
 title('Using MATLABs Zero-Crossing TED');

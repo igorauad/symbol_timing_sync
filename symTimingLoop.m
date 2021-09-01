@@ -1,12 +1,13 @@
 function [ xx ] = symTimingLoop(TED, intpl, L, mfOut, dMfOut, K1, K2, const, Ksym, debug_s, debug_r)
 % Symbol Timing Loop
 % ---------------------
-% Implements Symbol Timing Recovery with configurable Timing Error Detector
-% (TED) and Interpolator, using both a Proportional-plus-integrator (PI)
-% Controller and a Modulo-1 Counter to control the interpolator. The TED
-% can be configured as a Maximum-likelihood (ML) TED (ML-TED) or
-% Zero-Crossing TED (ZCTED), whereas the interpolator can be a Linear
-% Interpolator or a polyphase interpolator.
+%
+% Implements symbol timing recovery with a configurable timing error detector
+% (TED) and interpolator, using a proportional-plus-integrator (PI) controller
+% and a Modulo-1 counter to control the interpolator. The TED can be configured
+% as a maximum-likelihood (ML) TED (ML-TED) or a zero-crossing TED (ZC-TED),
+% whereas the interpolator can be a linear interpolator or a polyphase
+% interpolator.
 %
 % Input Arguments:
 % TED     -> Defines which TED should be used
@@ -14,18 +15,18 @@ function [ xx ] = symTimingLoop(TED, intpl, L, mfOut, dMfOut, K1, K2, const, Ksy
 % L       -> Oversampling Factor
 % mfOut   -> MF output sequence sampled at L samples/symbol
 % dMfOut  -> Derivative MF output sequence sampled at L samples/symbol
-%            (used only for the Maximum-Likelihood TED)
+%            (used only with the ML-TED)
 % K1      -> Proportional Gain
 % K2      -> Integrator Gain
 % const   -> Symbol constellation
 % Ksym    -> Symbol scaling factor that must be undone prior to slicing
-% debug_s -> Shows static debug plots after loop processing
-% debug_r -> Opens scope objects for run-time debugging of loop iterations
+% debug_s -> Show static debug plots after loop processing
+% debug_r -> Open scope objects for run-time debugging of loop iterations
 %
 %
-%   References:
-%   [1] Michael Rice, Digital Communications - A Discrete-Time Approach.
-%   New York: Prentice Hall, 2008.
+% References:
+%   [1] Michael Rice, Digital Communications - A Discrete-Time Approach. New
+%   York: Prentice Hall, 2008.
 
 if (nargin < 8)
     debug_s = 0;
@@ -88,22 +89,22 @@ nSamples = length(mfOut);
 nSymbols = ceil(nSamples / L);
 
 % Preallocate
+v    = zeros(nSamples, 1);
 xx   = zeros(nSymbols, 1);
 ee   = zeros(nSymbols, 1);
 mu_k = zeros(nSymbols, 1);
 
 % Initialize
-k         = 1;
-strobe    = 0;
-mu_next   = 0;
-CNT_next  = 1;
-vi        = 0;
+k        = 1;
+strobe   = 0;
+mu_next  = 0;
+CNT_next = 1;
+vi       = 0;
 
-for n=2:length(mfOut)
-
+for n = 2:length(mfOut)
     % Update values
     CNT = CNT_next;
-    mu  = mu_next;
+    mu = mu_next;
 
     % Debug using scope
     if (debug_r)
@@ -120,7 +121,7 @@ for n=2:length(mfOut)
 
     % When a strobe is signaled, compute the interpolants (once per symbol)
     if strobe == 1
-        m_k   = n-1; % Basepoint index (the index before the underflow)
+        m_k = n - 1; % Basepoint index (the index **before** the underflow)
 
         %% Parallel Interpolators
         % NOTE: there are two parallel interpolators for the MF output and
@@ -146,7 +147,7 @@ for n=2:length(mfOut)
         end
 
         %% Timing Error Detector:
-        a_hat_k = Ksym*slice(xI/Ksym, M); % Data Symbol Estimate â(k)
+        a_hat_k = Ksym * slice(xI / Ksym, M); % Data Symbol Estimate
         switch (TED)
             case 'MLTED' % Maximum Likelihood TED
                 e = real(a_hat_k) * real(xdotI) + ...
@@ -156,45 +157,43 @@ for n=2:length(mfOut)
                 % the S-Curve, as commented for Eq. 8.29.
             case 'ZCTED' % Zero-crossing TED
                 if (k > 1)
-                    % Previous Data Symbol Estimate â(k-1)
-                    a_hat_prev = Ksym*slice(xx(k-1)/Ksym, M);
+                    % Previous Data Symbol Estimate
+                    a_hat_prev = Ksym * slice(xx(k-1) / Ksym, M);
                     % Timing Error
                     e = real(mfOut(m_k - L/2)) * (real(a_hat_prev) - real(a_hat_k)) + ...
                         imag(mfOut(m_k - L/2)) * (imag(a_hat_prev) - imag(a_hat_k));
-                    % m_k - L/2 is the midpoint index between the current
-                    % and the previous symbols
+                    % m_k - L/2 is the midpoint between the current and previous
+                    % symbols (i.e., the current and previous basepoint indexes)
                 else
-                    e = 0;
+                    e = 0; % the ZC-TED needs at least two symbols to start
                 end
         end
 
-        % Save interpolant for MF output, Timing Error and Fractional
-        % Interval for plotting:
-        xx(k)   = xI;
-        ee(k)   = e;
-        mu_k(k) = mu;
+        % Save some metrics to plot them later:
+        xx(k)   = xI; % interpolant
+        ee(k)   = e;  % timing error
+        mu_k(k) = mu; % fractional symbol timing offset estimate
 
         % Update Interpolant Index
         k = k+1;
 
-        % Also optionally debug interpolant for MF output using scope
+        % Also optionally debug the interpolant using the real-time scope
         if (debug_r)
             step(hScope, xI)
         end
     else
-        % For the iterations that the interpolant is not signaled, the
-        % error is made null. This is equivalent to upsampling the TED
-        % output.
+        % Make the error null on the iterations without a strobe. This is
+        % equivalent to upsampling the TED output.
         e = 0;
     end
 
     %% Loop Filter
-    vp   = K1*e;       % Proportional
-    vi   = vi + K2*e;  % Integral
-    v(n) = vp + vi;    % PI Output
+    vp   = K1 * e;        % Proportional
+    vi   = vi + (K2 * e); % Integral
+    v(n) = vp + vi;       % PI Output
 
     %% Modulo-1 Counter
-    W        = 1/L + v(n);      % Adjust Counter Step
+    W = 1/L + v(n); % Adjust the counter step
     CNT_next = mod(CNT - W, 1); % Next Count (Modulo-1)
 
     % Whenever CNT < W, an underflow occurs (CNT_next wraps). The underflow
@@ -207,7 +206,6 @@ for n=2:length(mfOut)
         strobe = 0;
         mu_next = mu;
     end
-
 end
 
 %% Static Debug Plots
@@ -235,31 +233,31 @@ end
 
 % Function that maps Rx symbols into constellation points
 function [z] = slice(y, M)
-    if (isreal(y))
-        % Move the real part of input signal; scale appropriately and round the
-        % values to get ideal constellation index
-        z_index = round( ((real(y) + (M-1)) ./ 2) );
-        % clip the values that are outside the valid range
-        z_index(z_index <= -1) = 0;
-        z_index(z_index > (M-1)) = M-1;
-        % Regenerate Symbol (slice)
-        z = z_index*2 - (M-1);
-    else
-        M_bar = sqrt(M);
-        % Move the real part of input signal; scale appropriately and round the
-        % values to get ideal constellation index
-        z_index_re = round( ((real(y) + (M_bar - 1)) ./ 2) );
-        % Move the imaginary part of input signal; scale appropriately and
-        % round the values to get ideal constellation index
-        z_index_im = round( ((imag(y) + (M_bar - 1)) ./ 2) );
+if (isreal(y))
+    % Move the real part of input signal; scale appropriately and round the
+    % values to get ideal constellation index
+    z_index = round( ((real(y) + (M-1)) ./ 2) );
+    % clip the values that are outside the valid range
+    z_index(z_index <= -1) = 0;
+    z_index(z_index > (M-1)) = M-1;
+    % Regenerate Symbol (slice)
+    z = z_index*2 - (M-1);
+else
+    M_bar = sqrt(M);
+    % Move the real part of input signal; scale appropriately and round the
+    % values to get ideal constellation index
+    z_index_re = round( ((real(y) + (M_bar - 1)) ./ 2) );
+    % Move the imaginary part of input signal; scale appropriately and
+    % round the values to get ideal constellation index
+    z_index_im = round( ((imag(y) + (M_bar - 1)) ./ 2) );
 
-        % clip the values that are outside the valid range
-        z_index_re(z_index_re <= -1)       = 0;
-        z_index_re(z_index_re > (M_bar-1)) = M_bar-1;
-        z_index_im(z_index_im <= -1)       = 0;
-        z_index_im(z_index_im > (M_bar-1)) = M_bar-1;
+    % clip the values that are outside the valid range
+    z_index_re(z_index_re <= -1)       = 0;
+    z_index_re(z_index_re > (M_bar-1)) = M_bar-1;
+    z_index_im(z_index_im <= -1)       = 0;
+    z_index_im(z_index_im > (M_bar-1)) = M_bar-1;
 
-        % Regenerate Symbol (slice)
-        z = (z_index_re*2 - (M_bar-1)) + 1j*(z_index_im*2 - (M_bar-1));
-    end
+    % Regenerate Symbol (slice)
+    z = (z_index_re*2 - (M_bar-1)) + 1j*(z_index_im*2 - (M_bar-1));
+end
 end

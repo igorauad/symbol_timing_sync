@@ -1,19 +1,21 @@
-# Symbol Timing Synchronization Simulations
+# Symbol Timing Recovery
 
-Several scripts used to study the material from the Book *" Digital Communications: A Discrete-Time Approach"*, by *Michael Rice*
+This repository contains MATLAB scripts focusing on symbol timing recovery
+algorithms. The current implementation is based on the material from the book
+*"Digital Communications: A Discrete-Time Approach"*, by Michael Rice.
 
-Main simulation implements Symbol Timing Recovery using either a
-**Maximum-likelihood (ML) Timing Error Detector (ML-TED)** or a **Zero-Crossing
-TED (ZC-TED)**. The loop filter is a **Proportional-plus-integrator (PI)
-Controller** and the interpolator can be chosen as a Linear Interpolator or a
-**Polyphase Interpolator**. The **Interpolator Controller** is a **Modulo-1
-Counter**.
+The main script is a symbol timing recovery simulator, which can evaluate two
+timing error detectors (TEDs): a maximum-likelihood (ML) TED (**ML-TED**) and a
+zero-crossing TED (**ZC-TED**)*. The loop filter adopted by the simulator is a
+proportional-plus-integrator (PI) controller, and the interpolator can be chosen
+as a linear interpolator or a polyphase interpolator. The interpolator
+controller is a modulo-1 counter.
 
-| File        | Description         |
-| ------------- |:--------------|
-| `symbol_synchronizer.m`     | Main Simulation |
-| `symTimingLoop.m`     | Function that implements the timing recovery loop. |
-| `getTedKp.m`     | Function that computes the Timing Error Detector (TED) gain . |
-| `timingLoopPIConstants.m`     | Function that computes the PI controller constants. |
-| `polyphaseFilterBank.m`     | Function that computes the polyphase subfilters that are required when the polyphase interpolator is adopted. |
-| `tedDesign.m`     | A short script to analyze TED design parameters. |
+| File                        | Description                                         |
+| --------------------------- |:----------------------------------------------------|
+| `symbol_synchronizer.m`     | Main simulation.                                    |
+| `symTimingLoop.m`           | Function that implements the timing recovery loop.  |
+| `getTedKp.m`                | Function to compute the timing error detector gain. |
+| `timingLoopPIConstants.m`   | Function to compute the PI controller constants.    |
+| `polyphaseFilterBank.m`     | Function to design the polyphase interpolator.      |
+| `tedDesign.m`               | A short script to analyze TED design parameters.    |
