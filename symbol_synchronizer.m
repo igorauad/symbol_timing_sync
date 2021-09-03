@@ -18,7 +18,7 @@ rcDelay  = 10;         % Raised cosine (combined Tx/Rx) delay
 SNR      = 25;         % Target SNR
 Ex       = 1;          % Average symbol energy
 TED      = 'ZCTED';    % TED Type (choose 'MLTED' or 'ZCTED')
-intpl    = 0;          % 0) Linear; 1) Polyphase Interpolator
+intpl    = 2;          % 0) Linear; 1) Polyphase; 2) Quadratic; 3) Cubic
 forceZc  = 0;          % Use to force zero-crossings and debug self-noise
 
 %% System Objects

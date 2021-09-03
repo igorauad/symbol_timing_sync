@@ -8,8 +8,8 @@ The main script is a symbol timing recovery simulator, which can evaluate two
 timing error detectors (TEDs): a maximum-likelihood (ML) TED (**ML-TED**) and a
 zero-crossing TED (**ZC-TED**)*. The loop filter adopted by the simulator is a
 proportional-plus-integrator (PI) controller, and the interpolator can be chosen
-as a linear interpolator or a polyphase interpolator. The interpolator
-controller is a modulo-1 counter.
+from linear, polyphase, quadratic, and cubic interpolator options. The
+interpolator controller is a modulo-1 counter.
 
 | File                        | Description                                         |
 | --------------------------- |:----------------------------------------------------|

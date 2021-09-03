@@ -1,4 +1,4 @@
-function [ xx ] = symTimingLoop(TED, intpl, L, mfOut, dMfOut, K1, K2, const, Ksym, debug_s, debug_r)
+function [ xI ] = symTimingLoop(TED, intpl, L, mfOut, dMfOut, K1, K2, const, Ksym, debug_s, debug_r)
 % Symbol Timing Loop
 % ---------------------
 %
@@ -6,7 +6,7 @@ function [ xx ] = symTimingLoop(TED, intpl, L, mfOut, dMfOut, K1, K2, const, Ksy
 % (TED) and interpolator, using a proportional-plus-integrator (PI) controller
 % and a Modulo-1 counter to control the interpolator. The TED can be configured
 % as a maximum-likelihood (ML) TED (ML-TED) or a zero-crossing TED (ZC-TED),
-% whereas the interpolator can be a linear interpolator or a polyphase
+% whereas the interpolator can be a linear, polyphase, quadratic, or cubic
 % interpolator.
 %
 % Input Arguments:
@@ -67,7 +67,9 @@ if (debug_r)
         'YLimits', [-1 1]);
 end
 
-%% If applicable, design a polyphase filter bank
+%% Interpolator Design
+
+% Polyphase filter bank
 if (interpChoice == 1)
     % Fixed Parameters
     interpFactor  = 32;    % Interpolation factor
@@ -82,6 +84,36 @@ if (interpChoice == 1)
     dMfOutBuf = zeros(size(E, 2), 1);
 end
 
+% Quadratic and cubic interpolators
+%
+% Define the matrix bl_i with the Farrow coefficients to multiply the samples
+% surrounding the desired interpolant. Each column of bl_i_mtx holds b_l(i) for
+% a fixed l (exponent of mu(k) in 8.76) and for i (neighbor sample index) from
+% -2 to 1. After the fliplr operations, the first column becomes the one
+% associated with l=0 and the last with l=2. Each of those columns are filters
+% to process the samples from x(mk-1) to x(mk+2), i.e., the sample before the
+% basepoint index (x(mk-1)), the sample at the basepoint index (x(mk)), and two
+% samples ahead (x(mk+1) and x(mk+2)). Before the flipud, the first row of bl_i
+% would have the taps for i=-2, which would multiply x(mk+2). For convenience,
+% however, the flipping ensures the first row has the taps for i=+1, which
+% multiply x(mk-1). This order facilitates the dot product used later.
+if (interpChoice == 2)
+    % Farrow coefficients for alpha=0.5 (see Table 8.4.1)
+    alpha = 0.5;
+    bl_i_mtx = flipud(fliplr(...
+        [+alpha, -alpha, 0; ...
+        -alpha, (1 + alpha), 0; ...
+        -alpha, (alpha - 1), 1; ...
+        +alpha, -alpha     , 0]));
+elseif (interpChoice == 3)
+    % Table 8.4.2
+    bl_i_mtx = flipud(fliplr(...
+        [+1/6,    0, -1/6, 0; ...
+         -1/2, +1/2,   +1, 0; ...
+         +1/2, -1  , -1/2, 1; ...
+         -1/6, +1/2, -1/3, 0]));
+end
+
 %% Timing Recovery Loop
 
 % Constants
@@ -89,17 +121,15 @@ nSamples = length(mfOut);
 nSymbols = ceil(nSamples / L);
 
 % Preallocate
-v    = zeros(nSamples, 1);
-xx   = zeros(nSymbols, 1);
-ee   = zeros(nSymbols, 1);
-mu_k = zeros(nSymbols, 1);
+xI = zeros(nSymbols, 1); % Output interpolants
+mu = zeros(nSymbols, 1); % Fractional symbol timing offset estimate
+v  = zeros(nSamples, 1); % PI output
+e  = zeros(nSamples, 1); % Error detected by the TED
 
 % Initialize
 k      = 0;     % interpolant/symbol index
 strobe = 0;     % strobe signal
-mu     = 0;     % fractional symbol timing offset estimate
 cnt    = 1;     % modulo-1 counter
-W      = 1 / L; % modulo-1 counter's nominal step
 vi     = 0;     % PI filter integrator
 
 for n = 1:length(mfOut)
@@ -112,17 +142,14 @@ for n = 1:length(mfOut)
     end
 
     if strobe == 1
-        % Update the interpolant Index
-        k = k+1;
-
         % Parallel interpolators
         %
         % NOTE: there are two parallel interpolators for the MF output and the
         % dMF output. However, the dMF is only required when using the ML-TED.
         switch (interpChoice)
             case 0 % Linear Interpolator (See Eq. 8.61)
-                xI    = mu * mfOut(m_k + 1) + (1 - mu) * mfOut(m_k);
-                xdotI = mu * dMfOut(m_k + 1) + (1 - mu) * dMfOut(m_k);
+                xI(k) = mu(k) * mfOut(m_k + 1) + (1 - mu(k)) * mfOut(m_k);
+                xdotI = mu(k) * dMfOut(m_k + 1) + (1 - mu(k)) * dMfOut(m_k);
             case 1 % Polyphase interpolator
                 % All subfilters filter the same samples (low-rate input
                 % sequence)
@@ -130,58 +157,62 @@ for n = 1:length(mfOut)
                 % Chose the output of one out of L polyphase subfilters.
                 % Use mu(k) (the k-th fractional interval) to pick the
                 % appropriate subfilter.
-                chosenBranch = round((L-1)*mu) + 1;
+                chosenBranch = round((L-1) * mu(k)) + 1;
 
                 % Interpolants (from the chosen subfilter):
-                xI    = E(chosenBranch, :) * mfOutBuf;
+                xI(k) = E(chosenBranch, :) * mfOutBuf;
                 xdotI = E(chosenBranch, :) * dMfOutBuf;
+            case 2 % Quadratic Interpolator
+                % Recursive computation based on Eq. 8.77
+                v_l = mfOut(m_k - 1 : m_k + 2).' * bl_i_mtx;
+                xI(k) = (v_l(3) * mu(k) + v_l(2)) * mu(k) + v_l(1);
+            case 3 % Cubic Interpolator
+                % Recursive computation based on Eq. 8.78
+                v_l = mfOut(m_k - 1 : m_k + 2).' * bl_i_mtx;
+                xI(k) = ((v_l(4) * mu(k) + v_l(3)) * mu(k) + v_l(2)) * mu(k) + v_l(1);
         end
 
         % Timing Error Detector:
-        a_hat_k = Ksym * slice(xI / Ksym, M); % Data Symbol Estimate
+        a_hat_k = Ksym * slice(xI(k) / Ksym, M); % Data Symbol Estimate
         switch (TED)
             case 'MLTED' % Maximum Likelihood TED
-                e = real(a_hat_k) * real(xdotI) + ...
-                    imag(a_hat_k) * imag(xdotI);
+                e(n) = real(a_hat_k) * real(xdotI) + ...
+                       imag(a_hat_k) * imag(xdotI);
                 % Note: the error could be alternatively computed by
                 % "sign(xI)*xdotI". The difference is that this would scale
                 % the S-Curve, as commented for Eq. 8.29.
             case 'ZCTED' % Zero-crossing TED
                 if (k > 1)
                     % Previous Data Symbol Estimate
-                    a_hat_prev = Ksym * slice(xx(k-1) / Ksym, M);
+                    a_hat_prev = Ksym * slice(xI(k-1) / Ksym, M);
+
                     % Timing Error
-                    e = real(mfOut(m_k - L/2)) * (real(a_hat_prev) - real(a_hat_k)) + ...
-                        imag(mfOut(m_k - L/2)) * (imag(a_hat_prev) - imag(a_hat_k));
+                    e(n) = real(mfOut(m_k - L/2)) * (real(a_hat_prev) - real(a_hat_k)) + ...
+                           imag(mfOut(m_k - L/2)) * (imag(a_hat_prev) - imag(a_hat_k));
                     % m_k - L/2 is the midpoint between the current and previous
                     % symbols (i.e., the current and previous basepoint indexes)
                 else
-                    e = 0; % the ZC-TED needs at least two symbols to start
+                    e(n) = 0; % the ZC-TED needs at least two symbols to start
                 end
         end
 
-        % Save some metrics to plot them later:
-        xx(k)   = xI; % interpolant
-        ee(k)   = e;  % timing error
-        mu_k(k) = mu; % fractional symbol timing offset estimate
-
         % Real-time debugging scopes
         if (debug_r)
-            step(hScope, xI)
-            step(hTScopeCounter, mu);
+            step(hScope, xI(k))
+            step(hTScopeCounter, mu(k));
         end
     else
         % Make the error null on the iterations without a strobe. This is
         % equivalent to upsampling the TED output.
-        e = 0;
+        e(n) = 0;
     end
 
     % Loop Filter
-    vp   = K1 * e;        % Proportional
-    vi   = vi + (K2 * e); % Integral
-    v(n) = vp + vi;       % PI Output
+    vp   = K1 * e(n);        % Proportional
+    vi   = vi + (K2 * e(n)); % Integral
+    v(n) = vp + vi;          % PI Output
 
-    % Adjust the step used by the modulo-1 counter
+    % Adjust the step used by the modulo-1 counter (see below Eq. 8.86)
     W = 1/L + v(n);
 
     % Check whether the counter will underflow on the next cycle, i.e., whenever
@@ -196,8 +227,9 @@ for n = 1:length(mfOut)
     %   current cycle) and the current counter step, according to Eq. (8.89).
     strobe = cnt < W;
     if (strobe)
+        k = k + 1; % Update the interpolant Index
         m_k = n; % Basepoint index (the index **before** the underflow)
-        mu = cnt / W; % Equation (8.89)
+        mu(k) = cnt / W; % Equation (8.89)
     end
 
     % Next modulo-1 counter value:
@@ -205,12 +237,12 @@ for n = 1:length(mfOut)
 end
 
 % Trim the output vector
-xx = xx(1:k);
+xI = xI(1:k);
 
 %% Static Debug Plots
 if (debug_s)
     figure
-    plot(ee)
+    plot(e)
     ylabel('Timing Error $e(t)$', 'Interpreter', 'latex')
     xlabel('Symbol $k$', 'Interpreter', 'latex')
 
@@ -221,7 +253,7 @@ if (debug_s)
     xlabel('Sample $n$', 'Interpreter', 'latex')
 
     figure
-    plot(mu_k, '.')
+    plot(mu, '.')
     title('Fractional Error')
     ylabel('$\mu(k)$', 'Interpreter', 'latex')
     xlabel('Symbol $k$', 'Interpreter', 'latex')
