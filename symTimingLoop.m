@@ -95,22 +95,14 @@ ee   = zeros(nSymbols, 1);
 mu_k = zeros(nSymbols, 1);
 
 % Initialize
-k        = 1;
-strobe   = 0;
-mu_next  = 0;
-CNT_next = 1;
-vi       = 0;
+k      = 0;     % interpolant/symbol index
+strobe = 0;     % strobe signal
+mu     = 0;     % fractional symbol timing offset estimate
+cnt    = 1;     % modulo-1 counter
+W      = 1 / L; % modulo-1 counter's nominal step
+vi     = 0;     % PI filter integrator
 
-for n = 2:length(mfOut)
-    % Update values
-    CNT = CNT_next;
-    mu = mu_next;
-
-    % Debug using scope
-    if (debug_r)
-        step(hTScopeCounter, mu);
-    end
-
+for n = 1:length(mfOut)
     % When using the polyphase interpolator keep track of the interpolator
     % input buffers at the sample rate (not only within strobes)
     if (interpChoice == 1) % Polyphase interpolator
@@ -119,17 +111,16 @@ for n = 2:length(mfOut)
         dMfOutBuf = [dMfOut(n); dMfOutBuf(1:end-1)];
     end
 
-    % When a strobe is signaled, compute the interpolants (once per symbol)
     if strobe == 1
-        m_k = n - 1; % Basepoint index (the index **before** the underflow)
+        % Update the interpolant Index
+        k = k+1;
 
-        %% Parallel Interpolators
-        % NOTE: there are two parallel interpolators for the MF output and
-        % the dMF output. However, note the dMF interpolant is only
-        % required when using the MLTED.
+        % Parallel interpolators
+        %
+        % NOTE: there are two parallel interpolators for the MF output and the
+        % dMF output. However, the dMF is only required when using the ML-TED.
         switch (interpChoice)
-            case 0 % Linear Interpolator
-                % Interpolants (See Eq. 8.61)
+            case 0 % Linear Interpolator (See Eq. 8.61)
                 xI    = mu * mfOut(m_k + 1) + (1 - mu) * mfOut(m_k);
                 xdotI = mu * dMfOut(m_k + 1) + (1 - mu) * dMfOut(m_k);
             case 1 % Polyphase interpolator
@@ -146,7 +137,7 @@ for n = 2:length(mfOut)
                 xdotI = E(chosenBranch, :) * dMfOutBuf;
         end
 
-        %% Timing Error Detector:
+        % Timing Error Detector:
         a_hat_k = Ksym * slice(xI / Ksym, M); % Data Symbol Estimate
         switch (TED)
             case 'MLTED' % Maximum Likelihood TED
@@ -174,12 +165,10 @@ for n = 2:length(mfOut)
         ee(k)   = e;  % timing error
         mu_k(k) = mu; % fractional symbol timing offset estimate
 
-        % Update Interpolant Index
-        k = k+1;
-
-        % Also optionally debug the interpolant using the real-time scope
+        % Real-time debugging scopes
         if (debug_r)
             step(hScope, xI)
+            step(hTScopeCounter, mu);
         end
     else
         % Make the error null on the iterations without a strobe. This is
@@ -187,29 +176,38 @@ for n = 2:length(mfOut)
         e = 0;
     end
 
-    %% Loop Filter
+    % Loop Filter
     vp   = K1 * e;        % Proportional
     vi   = vi + (K2 * e); % Integral
     v(n) = vp + vi;       % PI Output
 
-    %% Modulo-1 Counter
-    W = 1/L + v(n); % Adjust the counter step
-    CNT_next = mod(CNT - W, 1); % Next Count (Modulo-1)
+    % Adjust the step used by the modulo-1 counter
+    W = 1/L + v(n);
 
-    % Whenever CNT < W, an underflow occurs (CNT_next wraps). The underflow
-    % of the counter is indicated by the strobe and should be used as the
-    % basepoint index by the interpolator.
-    if (CNT < W)
-        strobe = 1;
-        mu_next = CNT/W;
-    else
-        strobe = 0;
-        mu_next = mu;
+    % Check whether the counter will underflow on the next cycle, i.e., whenever
+    % "cnt < W". When that happens, the strobe signal must indicate the
+    % underflow occurrence and trigger updates on:
+    %
+    % - The basepoint index: set to the index right **before** the underflow.
+    %   When strobe=1, it means an underflow will occur on the **next** cycle.
+    %   Hence, the index before the underflow is exactly the current index.
+    % - The estimate of the fractional symbol timing offset: the estimate is
+    %   based on the counter value **before** the underflow (i.e., on the
+    %   current cycle) and the current counter step, according to Eq. (8.89).
+    strobe = cnt < W;
+    if (strobe)
+        m_k = n; % Basepoint index (the index **before** the underflow)
+        mu = cnt / W; % Equation (8.89)
     end
+
+    % Next modulo-1 counter value:
+    cnt = mod(cnt - W, 1);
 end
 
-%% Static Debug Plots
+% Trim the output vector
+xx = xx(1:k);
 
+%% Static Debug Plots
 if (debug_s)
     figure
     plot(ee)
@@ -231,7 +229,7 @@ end
 
 end
 
-% Function that maps Rx symbols into constellation points
+%% Function to map Rx symbols into constellation points
 function [z] = slice(y, M)
 if (isreal(y))
     % Move the real part of input signal; scale appropriately and round the
