@@ -73,7 +73,7 @@ K0 = -1;
 % recovery loop.
 
 % PI Controller Gains:
-[ K1, K2 ] = timingLoopPIConstants(Kp, K0, eta, Bn_Ts, L)
+[ K1, K2 ] = piLoopConstants(Kp, K0, eta, Bn_Ts, L)
 % Note: MATLAB's implementations uses a default value of Kp = 2.7;
 
 %% Random PSK Symbols
