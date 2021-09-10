@@ -11,11 +11,11 @@ proportional-plus-integrator (PI) controller, and the interpolator can be chosen
 from linear, polyphase, quadratic, and cubic interpolator options. The
 interpolator controller is a modulo-1 counter.
 
-| File                        | Description                                         |
-| --------------------------- |:----------------------------------------------------|
-| `symbol_synchronizer.m`     | Main simulation.                                    |
-| `symTimingLoop.m`           | Function that implements the timing recovery loop.  |
-| `getTedKp.m`                | Function to compute the timing error detector gain. |
-| `piLoopConstants.m`         | Function to compute the PI controller constants.    |
-| `polyphaseFilterBank.m`     | Function to design the polyphase interpolator.      |
-| `tedDesign.m`               | A short script to analyze TED design parameters.    |
+| File                        | Description                                           |
+| --------------------------- |:------------------------------------------------------|
+| `symbol_synchronizer.m`     | Main simulation.                                      |
+| `symTimingLoop.m`           | Function that implements the timing recovery loop.    |
+| `getTedKp.m`                | Function to compute the timing error detector gain.   |
+| `piLoopConstants.m`         | Function to compute the PI controller constants.      |
+| `polyphaseFilterBank.m`     | Function to design the polyphase interpolator.        |
+| `plotTedGain.m`             | Function to plot the TED gain vs. the rolloff factor. |
