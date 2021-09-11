@@ -16,6 +16,7 @@ interpolator controller is a modulo-1 counter.
 | `symbol_synchronizer.m`     | Main simulation.                                      |
 | `symTimingLoop.m`           | Function that implements the timing recovery loop.    |
 | `calcTedKp.m`               | Function to compute the timing error detector gain.   |
+| `derivativeMf.m`            | Function to compute the derivative matched filter.    |
 | `piLoopConstants.m`         | Function to compute the PI controller constants.      |
 | `polyphaseFilterBank.m`     | Function to design the polyphase interpolator.        |
 | `plotTedGain.m`             | Function to plot the TED gain vs. the rolloff factor. |

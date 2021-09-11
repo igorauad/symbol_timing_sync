@@ -42,21 +42,9 @@ DELAY = dsp.Delay(timeOffset);
 % Symbol Synchronizer
 SYMSYNC = comm.SymbolSynchronizer('SamplesPerSymbol', L);
 
-%% Matched Filter (MF)
+%% Matched Filter (MF) and Derivative Matched Filter (dMF)
 mf = RXFILT.coeffs.Numerator;
-
-%% dMF
-h = L * [0.5 0 -0.5]; % first central difference from Eq.(3.61) for T=1/L
-central_diff_mf = conv(h, mf);
-% Skip the tail and head so that the dMF matches the MF in length
-dmf = central_diff_mf(2:end-1);
-
-figure
-plot(mf)
-hold on, grid on
-plot(dmf, 'r')
-legend('MF', 'dMF')
-title('MF vs. dMF')
+dmf = derivativeMf(mf, L);
 
 %% PLL Design
 

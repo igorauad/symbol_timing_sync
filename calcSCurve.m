@@ -44,15 +44,11 @@ r_p = rcosine(1, L, 'normal', rollOff, rcDelay);
 % pulse (or pulse shape autocorrelation), as seen in Eq. (8.30). Hence, for
 % convenience, we compute the latter directly, and not the dMF.
 %
-% IMPORTANT: use central-differences to match the results in the book. Note
-% also that the first central difference from Eq. (3.61) divides by "2*T",
-% where T is the sampling interval. Here, we don't have "T", but we assume
-% "T = 1/L", such that the denominator of (3.61) becomes "(2/L)" instead.
-h = L * [0.5 0 -0.5]; % kernel function
-% Central-differences:
+% For further understanding regarding the differentiation implemented
+% below, refer to the implementation and comments in derivativeMf.m.
+h = L * [0.5 0 -0.5];
 r_p_diff = conv(h, r_p);
-% Skip the filter delay
-r_p_diff = r_p_diff(2:1+length(r_p));
+r_p_diff = r_p_diff(2:end-1);
 
 %% TED Gain
 

@@ -40,9 +40,7 @@ mf = conj(fliplr(htx));  % Matched filter (MF)
 r_p = conv(htx, mf);
 
 % Derivative matched filter (dMF)
-h = L * [0.5 0 -0.5]; % first central difference (see Eq. 3.61)
-dmf = conv(h, mf);
-dmf = dmf(2:end-1); % Skip the tail and head samples
+dmf = derivativeMf(mf, L);
 
 % Random data (note it must be random)
 data = randi(2, 1, nSymbols) - 1;
