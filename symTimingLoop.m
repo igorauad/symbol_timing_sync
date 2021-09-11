@@ -71,7 +71,7 @@ end
 %% Interpolator Design
 
 % Polyphase filter bank
-if (interpChoice == 1)
+if (interpChoice == 0)
     % Fixed Parameters
     interpFactor  = 32;  % Interpolation factor
     Pintfilt      = 4;   % Neighbor samples weighted by the interp filter
@@ -80,40 +80,44 @@ if (interpChoice == 1)
     % Design Polyphase Interpolator Filter Bank
     [ E ] = polyphaseFilterBank(L, interpFactor, Pintfilt, bandlimFactor);
 
-    % Buffers for MF and dMF output samples
-    mfOutBuf  = zeros(size(E, 2), 1);
-    dMfOutBuf = zeros(size(E, 2), 1);
+    % To facilitate the convolution computation using inner products, flip
+    % all subfilters (rows of E) from left to right.
+    E = fliplr(E);
+else
+    polyBranch = []; % dummy variable
 end
 
 % Quadratic and cubic interpolators
 %
 % Define the matrix bl_i with the Farrow coefficients to multiply the
-% samples surrounding the desired interpolant. Each column of bl_i_mtx
-% holds b_l(i) for a fixed l (exponent of mu(k) in 8.76) and for i
-% (neighbor sample index) from -2 to 1. After the fliplr operations, the
-% first column becomes the one associated with l=0 and the last with l=2.
-% Each of those columns are filters to process the samples from x(mk-1) to
-% x(mk+2), i.e., the sample before the basepoint index (x(mk-1)), the
-% sample at the basepoint index (x(mk)), and two samples ahead (x(mk+1) and
-% x(mk+2)). Before the flipud, the first row of bl_i would have the taps
-% for i=-2, which would multiply x(mk+2). For convenience, however, the
-% flipping ensures the first row has the taps for i=+1, which multiply
-% x(mk-1). This order facilitates the dot product used later.
+% samples surrounding the desired interpolant. Each column of b_mtx holds
+% b_l(i) for a fixed l (exponent of mu(k) in 8.76) and for i (neighbor
+% sample index) from -2 to 1. After the fliplr operations, the first column
+% becomes the one associated with l=0 and the last with l=2. Each of those
+% columns are filters to process the samples from x(mk-1) to x(mk+2), i.e.,
+% the sample before the basepoint index (x(mk-1)), the sample at the
+% basepoint index (x(mk)), and two samples ahead (x(mk+1) and x(mk+2)).
+% Before the flipud, the first row of bl_i would have the taps for i=-2,
+% which would multiply x(mk+2). For convenience, however, the flipping
+% ensures the first row has the taps for i=+1, which multiply x(mk-1). This
+% order facilitates the dot product used later.
 if (interpChoice == 2)
     % Farrow coefficients for alpha=0.5 (see Table 8.4.1)
     alpha = 0.5;
-    bl_i_mtx = flipud(fliplr(...
+    b_mtx = flipud(fliplr(...
         [+alpha,      -alpha, 0; ...
          -alpha, (1 + alpha), 0; ...
          -alpha, (alpha - 1), 1; ...
          +alpha,      -alpha, 0]));
 elseif (interpChoice == 3)
     % Table 8.4.2
-    bl_i_mtx = flipud(fliplr(...
+    b_mtx = flipud(fliplr(...
         [+1/6,    0, -1/6, 0; ...
          -1/2, +1/2,   +1, 0; ...
          +1/2,   -1, -1/2, 1; ...
          -1/6, +1/2, -1/3, 0]));
+else
+    b_mtx = []; % dummy variable
 end
 
 %% Timing Recovery Loop
@@ -135,46 +139,17 @@ cnt    = 1;     % modulo-1 counter
 vi     = 0;     % PI filter integrator
 
 for n = 1:length(mfOut)
-    % When using the polyphase interpolator keep track of the interpolator
-    % input buffers at the sample rate (not only within strobes)
-    if (interpChoice == 1) % Polyphase interpolator
-        % Update interpolator input buffers
-        mfOutBuf  = [mfOut(n); mfOutBuf(1:end-1)];
-        dMfOutBuf = [dMfOut(n); dMfOutBuf(1:end-1)];
-    end
-
     if strobe == 1
-        % Parallel interpolators
-        %
-        % NOTE: there are two parallel interpolators for the MF output and
-        % the dMF output. However, the dMF is only used with the ML-TED.
-        switch (interpChoice)
-            case 0 % Linear Interpolator (See Eq. 8.61)
-                xI(k) = mu(k) * mfOut(m_k + 1) + (1 - mu(k)) * mfOut(m_k);
-                xdotI = mu(k) * dMfOut(m_k + 1) + ...
-                    (1 - mu(k)) * dMfOut(m_k);
-            case 1 % Polyphase interpolator
-                % All subfilters filter the same samples (low-rate input
-                % sequence)
-
-                % Chose the output of one out of L polyphase subfilters.
-                % Use mu(k) (the k-th fractional interval) to pick the
-                % appropriate subfilter.
-                chosenBranch = round((L-1) * mu(k)) + 1;
-
-                % Interpolants (from the chosen subfilter):
-                xI(k) = E(chosenBranch, :) * mfOutBuf;
-                xdotI = E(chosenBranch, :) * dMfOutBuf;
-            case 2 % Quadratic Interpolator
-                % Recursive computation based on Eq. 8.77
-                v_l = mfOut(m_k - 1 : m_k + 2).' * bl_i_mtx;
-                xI(k) = (v_l(3) * mu(k) + v_l(2)) * mu(k) + v_l(1);
-            case 3 % Cubic Interpolator
-                % Recursive computation based on Eq. 8.78
-                v_l = mfOut(m_k - 1 : m_k + 2).' * bl_i_mtx;
-                xI(k) = ((v_l(4) * mu(k) + v_l(3)) * ...
-                    mu(k) + v_l(2)) * mu(k) + v_l(1);
+        % Interpolation
+        if (interpChoice == 0)
+            % When using a polyphase interpolator, update the polyphase
+            % filter branch to be used next. Use mu (the k-th fractional
+            % interval) to pick the appropriate subfilter.
+            chosenPolyBranch = floor(L * mu(k)) + 1;
+            polyBranch = E(chosenPolyBranch, :);
         end
+        xI(k) = interpolate(interpChoice, mfOut, m_k, mu(k), b_mtx, polyBranch);
+        xdotI = interpolate(interpChoice, dMfOut, m_k, mu(k), b_mtx, polyBranch);
 
         % Timing Error Detector:
         a_hat_k = Ksym * slice(xI(k) / Ksym, M); % Data Symbol Estimate
@@ -268,6 +243,41 @@ if (debug_s)
     xlabel('Symbol $k$', 'Interpreter', 'latex')
 end
 
+end
+
+%% Interpolation
+function [xI] = interpolate(method, x, m_k, mu, b_mtx, poly_h)
+% [xI] = interpolate(interpChoice, x, mu) returns the interpolant xI
+% obtained from the vector of samples x.
+%
+% Args:
+%     method -> Interpolation method: polyphase (0), linear (1), quadratic
+%               (2), or cubic (3).
+%     x      -> Vector of samples based on which the interpolant shall be
+%               computed, including the basepoint and surrounding samples.
+%     m_k    -> Basepoint index, the index preceding the interpolant.
+%     mu     -> Estimated fractional interval between the basepoint index
+%               and the desired interpolant instant.
+%     b_mtx  -> Matrix with the coefficients for the polynomial
+%               interpolator used with method=2 or method=3.
+%     poly_h -> Polyphase subfilter that should process the input samples
+%               when using the polyphase interpolator (method=0).
+    switch (method)
+    case 0 % Polyphase interpolator
+        N = length(poly_h);
+        xI = poly_h * x((m_k - N + 1) : m_k);
+    case 1 % Linear Interpolator (See Eq. 8.61)
+        xI = mu * x(m_k + 1) + (1 - mu) * x(m_k);
+    case 2 % Quadratic Interpolator
+        % Recursive computation based on Eq. 8.77
+        v_l = x(m_k - 1 : m_k + 2).' * b_mtx;
+        xI = (v_l(3) * mu + v_l(2)) * mu + v_l(1);
+    case 3 % Cubic Interpolator
+        % Recursive computation based on Eq. 8.78
+        v_l = x(m_k - 1 : m_k + 2).' * b_mtx;
+        xI = ((v_l(4) * mu + v_l(3)) * ...
+            mu + v_l(2)) * mu + v_l(1);
+    end
 end
 
 %% Function to map Rx symbols into constellation points
