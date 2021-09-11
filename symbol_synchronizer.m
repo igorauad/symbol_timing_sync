@@ -46,11 +46,10 @@ SYMSYNC = comm.SymbolSynchronizer('SamplesPerSymbol', L);
 mf = RXFILT.coeffs.Numerator;
 
 %% dMF
-% IMPORTANT: use central-differences to match the results in the book
-h = [0.5 0 -0.5]; % kernel function
+h = L * [0.5 0 -0.5]; % first central difference from Eq.(3.61) for T=1/L
 central_diff_mf = conv(h, mf);
-% Skip the filter delay
-dmf = central_diff_mf(2:1+length(mf));
+% Skip the tail and head so that the dMF matches the MF in length
+dmf = central_diff_mf(2:end-1);
 
 figure
 plot(mf)
@@ -62,7 +61,7 @@ title('MF vs. dMF')
 %% PLL Design
 
 % Time-error Detector Gain (TED Gain)
-Kp = getTedKp(TED, L, rollOff, rcDelay);
+Kp = calcTedKp(TED, rollOff);
 % Scale Kp based on the average symbol energy (at the receiver)
 K  = 1; % Assume channel gain is unitary
 Kp = K*Ex*Kp;
