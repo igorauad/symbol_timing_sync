@@ -138,7 +138,9 @@ strobe = 0;     % strobe signal
 cnt    = 1;     % modulo-1 counter
 vi     = 0;     % PI filter integrator
 
-for n = 1:length(mfOut)
+% Due to the look-ahead scheme in the early-late TED, process
+% "length(mfOut) - L" samples only:
+for n = 1:(length(mfOut) - L)
     if strobe == 1
         % Interpolation
         if (interpChoice == 0)
@@ -148,33 +150,76 @@ for n = 1:length(mfOut)
             chosenPolyBranch = floor(L * mu(k)) + 1;
             polyBranch = E(chosenPolyBranch, :);
         end
-        xI(k) = interpolate(interpChoice, mfOut, m_k, mu(k), b_mtx, polyBranch);
-        xdotI = interpolate(interpChoice, dMfOut, m_k, mu(k), b_mtx, polyBranch);
+        xI(k) = interpolate(interpChoice, ...
+            mfOut, m_k, mu(k), b_mtx, polyBranch);
+        xdotI = interpolate(interpChoice, ...
+            dMfOut, m_k, mu(k), b_mtx, polyBranch);
 
         % Timing Error Detector:
         a_hat_k = Ksym * slice(xI(k) / Ksym, M); % Data Symbol Estimate
         switch (TED)
             case 'MLTED' % Maximum Likelihood TED
+                % Decision-directed version of Eq. (8.98), i.e., Eq. (8.27)
+                % adapted to complex symbols:
                 e(n) = real(a_hat_k) * real(xdotI) + ...
                     imag(a_hat_k) * imag(xdotI);
-                % Note: the error could be alternatively computed by
-                % "sign(xI)*xdotI". The difference is that this would scale
-                % the S-Curve, as commented for Eq. 8.29.
+            case 'ELTED' % Early-late TED
+                % Early and late interpolants
+                x_early = interpolate(interpChoice, ...
+                    mfOut, m_k + L/2, mu(k), b_mtx, polyBranch);
+                x_late = interpolate(interpChoice, ...
+                    mfOut, m_k - L/2, mu(k), b_mtx, polyBranch);
+                % Decision-directed version of (8.99), i.e., (8.34)
+                % adapted to complex symbols:
+                e(n) = real(a_hat_k) * (real(x_early) - real(x_late)) + ...
+                    imag(a_hat_k) * (imag(x_early) - imag(x_late));
             case 'ZCTED' % Zero-crossing TED
                 if (k > 1)
-                    % Previous Data Symbol Estimate
+                    % Estimate of the previous data symbol
                     a_hat_prev = Ksym * slice(xI(k-1) / Ksym, M);
 
-                    % Timing Error
-                    e(n) = real(mfOut(m_k - L/2)) * ...
+                    % Zero-crossing interpolant
+                    %
+                    % NOTE: "m(k) - L/2 + mu(k)" is the estimated instant
+                    % of the midpoint between the current and previous
+                    % symbols/interpolants, where the zero-crossing should
+                    % be located when the loop converges.
+                    x_zc = interpolate(interpChoice, ...
+                        mfOut, m_k - L/2, mu(k), b_mtx, polyBranch);
+
+                    % Decision-directed version of (8.100), i.e., (8.37)
+                    % adapted to complex symbols:
+                    e(n) = real(x_zc) * ...
                         (real(a_hat_prev) - real(a_hat_k)) + ...
-                        imag(mfOut(m_k - L/2)) * ...
-                        (imag(a_hat_prev) - imag(a_hat_k));
-                    % m_k - L/2 is the midpoint between the current and
-                    % previous symbols (i.e., the current and previous
-                    % basepoint indexes)
+                        imag(x_zc) * (imag(a_hat_prev) - imag(a_hat_k));
                 else
-                    e(n) = 0; % the ZC-TED needs at least two symbols
+                    e(n) = 0; % needs at least two symbols to start
+                end
+            case 'GTED' % Gardner TED
+                % Zero-crossing interpolant, same as used by the ZCTED
+                x_zc = interpolate(interpChoice, ...
+                        mfOut, m_k - L/2, mu(k), b_mtx, polyBranch);
+
+                % Equation (8.101):
+                if (k > 1)
+                    e(n) = real(x_zc) * (real(xI(k - 1)) - real(xI(k))) ...
+                        + imag(x_zc) * (imag(xI(k - 1)) - imag(xI(k)));
+                else
+                    e(n) = 0; % needs at least two symbols to start
+                end
+            case 'MMTED' % Mueller and Müller TED
+                if (k > 1)
+                    % Estimate of the previous data symbol
+                    a_hat_prev = Ksym * slice(xI(k-1) / Ksym, M);
+
+                    % Decision-directed version of (8.102), i.e., (8.49)
+                    % adapted to complex symbols:
+                    e(n) = real(a_hat_prev) * real(xI(k)) - ...
+                        real(a_hat_k) * real(xI(k - 1)) + ...
+                        imag(a_hat_prev) * imag(xI(k)) - ...
+                        imag(a_hat_k) * imag(xI(k - 1));
+                else
+                    e(n) = 0; % needs at least two symbols to start
                 end
         end
 

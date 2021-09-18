@@ -17,7 +17,7 @@ timeOffset = 5;        % Delay (in samples) added
 rcDelay  = 10;         % Raised cosine (combined Tx/Rx) delay
 SNR      = 25;         % Target SNR
 Ex       = 1;          % Average symbol energy
-TED      = 'ZCTED';    % TED Type (choose 'MLTED' or 'ZCTED')
+TED      = 'ZCTED';    % TED (MLTED, ELTED, ZCTED, GTED, or MMTED)
 intpl    = 2;          % 0) Polyphase; 1) Linear; 2) Quadratic; 3) Cubic
 forceZc  = 0;          % Use to force zero-crossings and debug self-noise
 
