@@ -13,8 +13,8 @@ interpolator controller is a modulo-1 counter.
 
 | File                        | Description                                           |
 | --------------------------- |:------------------------------------------------------|
-| `symbol_synchronizer.m`     | Main simulation.                                      |
-| `symTimingLoop.m`           | Function that implements the timing recovery loop.    |
+| `main.m`                    | Main simulation.                                      |
+| `symbolTimingSync.m`        | Function implementing the symbol timing recovery loop.|
 | `calcTedKp.m`               | Function to compute the timing error detector gain.   |
 | `derivativeMf.m`            | Function to compute the derivative matched filter.    |
 | `piLoopConstants.m`         | Function to compute the PI controller constants.      |

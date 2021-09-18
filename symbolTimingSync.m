@@ -1,5 +1,5 @@
-function [ xI ] = symTimingLoop(TED, intpl, L, mfOut, dMfOut, K1, K2, ...
-    const, Ksym, debug_s, debug_r)
+function [ xI ] = symbolTimingSync(TED, intpl, L, mfOut, dMfOut, K1, ...
+    K2, const, Ksym, debug_s, debug_r)
 % Symbol Timing Loop
 % ---------------------
 %
