@@ -142,10 +142,24 @@ v  = zeros(nSamples, 1); % PI output
 e  = zeros(nSamples, 1); % Error detected by the TED
 
 % Initialize
-k      = 0;     % interpolant/symbol index
-strobe = 0;     % strobe signal
-cnt    = 1;     % modulo-1 counter
-vi     = 0;     % PI filter integrator
+k      = 0; % interpolant/symbol index
+strobe = 0; % strobe signal
+cnt    = 1; % modulo-1 counter
+vi     = 0; % PI filter integrator
+
+% NOTE: by starting cnt with value 1, the first strobe is asserted when
+% "n=L+1" and takes effect on iteration "n=L+2", while setting the
+% basepoint index to "m_k=L+1". Furthermore, because the counter step is
+% "W=1/L" before the first strobe and "cnt=0" when the first strobe is
+% asserted, the first fractional interval estimate from Eq. (8.89) is
+% "mu=0". Consequently, the first interpolant tends to be closer (or equal
+% to) the sample at the basepoint index m_k. In other words, the first
+% interpolant is "x(L+1)". This is not strictly necessary, but is important
+% to understand, e.g., when evaluating the loop in unit tests. Also, this
+% strategy is useful to ensure there is enough "memory" when the time comes
+% to compute the first interpolant, as the interpolation equations use
+% samples from the past. Lastly, note "cnt=1" only in the first iteration.
+% In all other iterations, it is always within [0, 1).
 
 % Due to the look-ahead scheme in the early-late TED, process
 % "length(mfOut) - L" samples only:
@@ -247,6 +261,12 @@ for n = 1:(length(mfOut) - L)
     vp   = K1 * e(n);        % Proportional
     vi   = vi + (K2 * e(n)); % Integral
     v(n) = vp + vi;          % PI Output
+    % NOTE: since e(n)=0 when strobe=0, the PI output can be simplified to
+    % "v(n) = vi" on iterations without a strobe. It is only when strobe=1
+    % that "vp != 0" and that vi (integrator output) changes. Importantly,
+    % note the counter step W below changes briefly to "1/L + vp + vi" when
+    % strobe=1 and, then, changes back to "1/L + vi" when strobe=0. In the
+    % meantime, "vi" remains constant until the next strobe.
 
     % Adjust the step used by the modulo-1 counter (see below Eq. 8.86)
     W = 1/L + v(n);
