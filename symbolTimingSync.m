@@ -162,8 +162,18 @@ vi     = 0; % PI filter integrator
 % In all other iterations, it is always within [0, 1).
 
 % Due to the look-ahead scheme in the early-late TED, process
-% "length(mfOut) - L" samples only:
-for n = 1:(length(mfOut) - L)
+% "length(mfOut) - L" samples only. Also, when using the quadratic or cubic
+% interpolators (which take "x(m_k + 1)" into account), leave one extra
+% sample in the end. In all other cases, process all samples.
+if (strcmp(TED, 'ELTED'))
+    n_end = length(mfOut) - L;
+elseif (intpl > 1)
+    n_end = length(mfOut) - 1;
+else
+    n_end = length(mfOut);
+end
+
+for n = 1:n_end
     if strobe == 1
         % Interpolation
         if (interpChoice == 0)
@@ -295,7 +305,11 @@ for n = 1:(length(mfOut) - L)
 end
 
 % Trim the output vector
-xI = xI(1:k);
+if (strobe) % ended on a strobe (before filling the k-th interpolant)
+    xI = xI(1:k-1);
+else
+    xI = xI(1:k);
+end
 
 %% Static Debug Plots
 if (debug_s)
