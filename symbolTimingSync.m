@@ -185,13 +185,14 @@ for n = 1:n_end
         end
         xI(k) = interpolate(interpChoice, ...
             mfOut, m_k, mu(k), b_mtx, polyBranch);
-        xdotI = interpolate(interpChoice, ...
-            dMfOut, m_k, mu(k), b_mtx, polyBranch);
 
         % Timing Error Detector:
         a_hat_k = Ksym * slice(xI(k) / Ksym, M); % Data Symbol Estimate
         switch (TED)
             case 'MLTED' % Maximum Likelihood TED
+                % dMF interpolant
+                xdotI = interpolate(interpChoice, ...
+                    dMfOut, m_k, mu(k), b_mtx, polyBranch);
                 % Decision-directed version of Eq. (8.98), i.e., Eq. (8.27)
                 % adapted to complex symbols:
                 e(n) = real(a_hat_k) * real(xdotI) + ...
@@ -229,12 +230,12 @@ for n = 1:n_end
                     e(n) = 0; % needs at least two symbols to start
                 end
             case 'GTED' % Gardner TED
-                % Zero-crossing interpolant, same as used by the ZCTED
-                x_zc = interpolate(interpChoice, ...
+                if (k > 1)
+                    % Zero-crossing interpolant, same as used by the ZCTED
+                    x_zc = interpolate(interpChoice, ...
                         mfOut, m_k - L/2, mu(k), b_mtx, polyBranch);
 
-                % Equation (8.101):
-                if (k > 1)
+                    % Equation (8.101):
                     e(n) = real(x_zc) * (real(xI(k - 1)) - real(xI(k))) ...
                         + imag(x_zc) * (imag(xI(k - 1)) - imag(xI(k)));
                 else
