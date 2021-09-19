@@ -29,7 +29,7 @@ function [ xI ] = symbolTimingSync(TED, intpl, L, mfOut, dMfOut, K1, ...
 %   [1] Michael Rice, Digital Communications - A Discrete-Time Approach.
 %   New York: Prentice Hall, 2008.
 
-if (nargin < 8)
+if (nargin < 10)
     debug_s = 0;
     debug_r = 0;
 end
@@ -39,6 +39,15 @@ interpChoice = intpl;
 
 % Modulation order
 M = numel(const);
+
+% Make sure the MF and dMF output arguments are column vectors
+if (size(mfOut, 1) == 1)
+    mfOut = mfOut(:);
+end
+
+if (size(dMfOut, 1) == 1)
+    dMfOut = dMfOut(:);
+end
 
 %% Optional System Objects for Step-by-step Debugging of the Loop
 
