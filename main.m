@@ -79,7 +79,7 @@ K0 = -1;
 [ K1, K2 ] = piLoopConstants(Kp, K0, eta, Bn_Ts, L);
 
 fprintf("Loop constants:\n");
-fprintf("K1 = %f; K2 = %f; Kp = %f\n", K1, K2, Kp);
+fprintf("K1 = %g; K2 = %g; Kp = %g\n", K1, K2, Kp);
 
 % MATLAB's symbol synchronizer for comparison
 tedMap = containers.Map({'ELTED', 'ZCTED', 'GTED', 'MMTED'}, ...
