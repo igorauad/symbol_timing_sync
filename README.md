@@ -50,6 +50,7 @@ damping factor, or play with plotting and debugging options by enabling the
 | `plotTedGain.m`             | Function to plot the TED gain vs. the rolloff factor. |
 | `calcSCurve.m`              | Function to compute the TED's S-curve analytically.   |
 | `simSCurve.m`               | Function to simulate the TED's S-curve.               |
+| `genTestVector.m`           | Function to generate input/output test vectors.       |
 | `sCurveDemo.mlx`            | A demonstration of TED S-curve and gain evaluations.  |
 
 ## Contact
