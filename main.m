@@ -14,6 +14,7 @@ Bn_Ts    = 0.01;       % Loop noise bandwidth (Bn) times symbol period (Ts)
 eta      = 1;          % Loop damping factor
 rollOff  = 0.2;        % Pulse shaping roll-off factor
 timeOffset = 25;       % Simulated channel delay in samples
+fsOffsetPpm = 0;       % Sampling clock frequency offset in ppm
 rcDelay  = 10;         % Raised cosine (combined Tx/Rx) delay
 EsN0     = 20;         % Target Es/N0
 Ex       = 1;          % Average symbol energy
@@ -123,8 +124,19 @@ end
 % Tx Filter
 txSig = step(TXFILT, modSig);
 
+% Sampling clock frequency offset
+%
+% The frequencies produced by the Tx and Rx sampling clocks are often
+% significantly distinct, unless both sides adopt high-accuracy oscillators
+% (e.g., atomic clocks) or clock disciplining mechanisms, such as with
+% GPSDOs. Simulate this relative frequency offset by resampling the signal.
+fsRatio = 1 + (fsOffsetPpm * 1e-6); % Rx/Tx clock frequency ratio
+tol = 1e-9;
+[P, Q] = rat(fsRatio, tol); % express the ratio as a fraction P/Q
+txResamp = resample(txSig, P, Q);
+
 % Channel
-delaySig = step(DELAY, txSig);
+delaySig = step(DELAY, txResamp);
 txSigPower = 1 / sqrt(L);
 rxSig = awgn(delaySig, EsN0, txSigPower);
 
