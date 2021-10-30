@@ -1,6 +1,6 @@
 # Symbol Timing Recovery
 
-## Overview 
+## Overview
 This repository contains MATLAB scripts focusing on symbol timing recovery
 algorithms. The implementation is based on the material from the book *"Digital
 Communications: A Discrete-Time Approach"* by Michael Rice. If you are new to
@@ -52,6 +52,11 @@ damping factor, or play with plotting and debugging options by enabling the
 | `simSCurve.m`               | Function to simulate the TED's S-curve.               |
 | `genTestVector.m`           | Function to generate input/output test vectors.       |
 | `sCurveDemo.mlx`            | A demonstration of TED S-curve and gain evaluations.  |
+
+## Experiments
+
+Please refer to the [documentation page](experiments.md) covering relevant
+experiments with the symbol timing recovery simulator.
 
 ## Contact
 
