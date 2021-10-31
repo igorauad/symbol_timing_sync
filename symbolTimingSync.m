@@ -82,12 +82,17 @@ end
 % Polyphase filter bank
 if (interpChoice == 0)
     % Fixed Parameters
-    interpFactor  = 32;  % Interpolation factor
-    Pintfilt      = 4;   % Neighbor samples weighted by the interp filter
-    bandlimFactor = 0.5; % Bandlimitedness of the interpolated sequence
+    polyInterpFactor = 32; % Interpolation factor
+    Pintfilt = 4;          % Neighbor samples weighted by each subfilter
+    bandlimFactor = 0.5;   % Bandlimitedness of the interpolated sequence
+    % Note: the polyphase filter's interpolation factor is completely
+    % independent from the receiver's oversampling factor L. For instance,
+    % the receiver may be running with L=2 and the polyphase may still
+    % apply a high interpolation factor such as "polyInterpFactor=32".
 
     % Design Polyphase Interpolator Filter Bank
-    [ E ] = polyphaseFilterBank(L, interpFactor, Pintfilt, bandlimFactor);
+    [ E ] = polyphaseFilterBank(L, polyInterpFactor, Pintfilt, ...
+        bandlimFactor);
 
     % To facilitate the convolution computation using inner products, flip
     % all subfilters (rows of E) from left to right.
@@ -173,14 +178,51 @@ else
     n_end = length(mfOut);
 end
 
-for n = 1:n_end
+% Start with enough history samples for the interpolator.
+%
+% As mentioned earlier, the first strobe only takes effect on iteration
+% "n=L+2", and the first basepoint index is "m_k=L+1". Hence, the first
+% interpolation can access up to L samples from the past. This amount is
+% generally sufficient for the linear, quadratic, and cubic interpolators,
+% which at maximum access the sample preceding the basepoint index (in this
+% case, index "n = m_k - 1 = L"). Thus, the loop can be started right from
+% "n=1". Furthermore, this approach works even with the ZCTED, ELTED, and
+% GTED schemes, which need to compute the zero-crossing (or late)
+% interpolants. The zero-crossing interpolant is computed based on the
+% basepoint index at "m_k - L/2", so the interpolator only uses up to index
+% "m_k - L/2 - 1", which is guaranteed to be available for L >= 2. For
+% instance, if L=2, the first basepoint index is "m_k=3", the zero-crossing
+% basepoint index is 2, and the interpolator accesses index 1 to compute
+% the zero-crossing interpolant.
+%
+% The only scenario where there may not be enough history samples for the
+% interpolation is if using the polyphase interpolator. The sample history
+% required by the polyphase interpolator depends on the filter length
+% adopted on each polyphase branch. Say, if the polyphase branch filter has
+% length N, it processes the samples from index "m_k - N + 1" to m_k. This
+% range only works if "m_k - N + 1 >= 1", namely if "m_k >= N". And since
+% the first basepoint index occurs after L iterations from the start, the
+% loop must start at index "N - L". Furthermore, when using the ELTED,
+% which computes the late interpolant using basepoint index "m_k - L/2",
+% the starting index must be offset by another "L/2" samples.
+if (interpChoice == 0)
+    poly_branch_len = size(E, 2);
+    n_start = max(1, poly_branch_len - L);
+    if (strcmp(TED, 'ELTED'))
+        n_start = n_start + L/2;
+    end
+else
+    n_start = 1;
+end
+
+for n = n_start:n_end
     if strobe == 1
         % Interpolation
         if (interpChoice == 0)
             % When using a polyphase interpolator, update the polyphase
             % filter branch to be used next. Use mu (the k-th fractional
             % interval) to pick the appropriate subfilter.
-            chosenPolyBranch = floor(L * mu(k)) + 1;
+            chosenPolyBranch = floor(polyInterpFactor * mu(k)) + 1;
             polyBranch = E(chosenPolyBranch, :);
         end
         xI(k) = interpolate(interpChoice, ...

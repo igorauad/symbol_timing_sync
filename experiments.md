@@ -30,6 +30,11 @@ Now, the performance is significantly superior and similar to the performance ac
 
 In fact, you can observe the measured MER (printed on the console) achieved with the cubic interpolator is superior to the MER achieved with MATLAB's implementation using a quadratic interpolator.
 
+The performance is even better when using a polyphase interpolator. To verify that, set the following parameter on `main.m`:
+- `intpl = 0`
+
+The rationale is that the polyphase interpolator has an interpolation factor of its own. The receiver may be running with an oversampling of two (`L=2`). Meanwhile, the polyphase interpolator can still rely on 32 polyphase branches, which is equivalent to using an interpolating factor of 32. Because of this property, the polyphase interpolator achieves the best performance with the parameters in this experiment. Its measured MER is nearly 10 dB better than the one achieved with the cubic interpolator, and 20 dB better than the linear interpolator.
+
 Lastly, observe that these effects arise only because the oversampling ratio is low. For example, set the linear interpolator again but increase the oversampling ratio to $L=8$. That is, on `main.m`, set:
 - `L = 8`
 - `intpl = 1`
