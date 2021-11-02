@@ -41,17 +41,18 @@ damping factor, or play with plotting and debugging options by enabling the
 
 | File                        | Description                                           |
 | --------------------------- |:------------------------------------------------------|
-| `main.m`                    | Main simulation.                                      |
-| `symbolTimingSync.m`        | Function implementing the symbol timing recovery loop.|
+| `calcSCurve.m`              | Function to compute the TED's S-curve analytically.   |
 | `calcTedKp.m`               | Function to compute the timing error detector gain.   |
 | `derivativeMf.m`            | Function to compute the derivative matched filter.    |
-| `piLoopConstants.m`         | Function to compute the PI controller constants.      |
-| `polyphaseFilterBank.m`     | Function to design the polyphase interpolator.        |
-| `plotTedGain.m`             | Function to plot the TED gain vs. the rolloff factor. |
-| `calcSCurve.m`              | Function to compute the TED's S-curve analytically.   |
-| `simSCurve.m`               | Function to simulate the TED's S-curve.               |
 | `genTestVector.m`           | Function to generate input/output test vectors.       |
+| `main.m`                    | Main simulation.                                      |
+| `piLoopConstants.m`         | Function to compute the PI controller constants.      |
+| `plotTedGain.m`             | Function to plot the TED gain vs. the rolloff factor. |
+| `polyDecomp.m`              | Function to decompose a filter into a polyphase bank. |
+| `polyInterpFilt.m`          | Function to design a polyphase interpolator.          |
 | `sCurveDemo.mlx`            | A demonstration of TED S-curve and gain evaluations.  |
+| `simSCurve.m`               | Function to simulate the TED's S-curve.               |
+| `symbolTimingSync.m`        | Function implementing the symbol timing recovery loop.|
 
 ## Experiments
 

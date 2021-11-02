@@ -40,10 +40,7 @@ RXFILT = comm.RaisedCosineReceiveFilter( ...
     'DecimationFactor', 1, ...
     'RolloffFactor', rollOff, ...
     'FilterSpanInSymbols', rcDelay);
-mf = RXFILT.coeffs.Numerator;
-
-% Derivative matched filter (dMF)
-dmf = derivativeMf(mf, L);
+mf = RXFILT.coeffs.Numerator; % same as "rcosdesign(rollOff, rcDelay, L)"
 
 % Digital Delay
 DELAY = dsp.Delay(timeOffset);
@@ -120,7 +117,7 @@ end
 % Ensure the average symbol energy is unitary, otherwise the loop constants
 % must be altered (because Kp, the TED gain, must scale accordingly).
 
-%% Simulation: Transmission -> Channel -> Reception (MF/dMF Filtering)
+%% Simulation: Tx -> Channel -> Rx Matched Filtering -> Symbol Synchronizer
 % Tx Filter
 txSig = step(TXFILT, modSig);
 
@@ -138,26 +135,23 @@ txResamp = resample(txSig, P, Q);
 % Channel
 delaySig = step(DELAY, txResamp);
 txSigPower = 1 / sqrt(L);
-rxSig = awgn(delaySig, EsN0, txSigPower);
+rxSeq = awgn(delaySig, EsN0, txSigPower);
 
-% Rx filter
-rxSample = step(RXFILT, rxSig);
-
-% dMF filtering
-rxSampleDiff = filter(dmf, 1, rxSig);
+% Rx matched filter (MF)
+mfOut = step(RXFILT, rxSeq);
 
 %% Symbol Timing Recovery
 % Downsampled symbols without symbol timing recovery
-rxNoSync = downsample(rxSample, L);
+rxNoSync = downsample(mfOut, L);
 
 % Downsampled symbols with perfect symbol timing recovery
-rxPerfectSync = downsample(rxSample, L, timeOffset);
+rxPerfectSync = downsample(mfOut, L, timeOffset);
 
 % Our symbol timing recovery implementation
-[ rxSync1 ] = symbolTimingSync(TED, intpl, L, rxSample, rxSampleDiff, ...
-    K1, K2, const, Ksym, debug_tl_static, debug_tl_runtime);
+[ rxSync1 ] = symbolTimingSync(TED, intpl, L, rxSeq, mfOut, K1, K2, ...
+    const, Ksym, rollOff, rcDelay, debug_tl_static, debug_tl_runtime);
 % MATLAB's implementation
-rxSync2 = step(SYMSYNC, rxSample);
+rxSync2 = step(SYMSYNC, mfOut);
 
 %% Plots and Measurement
 skip = 0.2 * nSymbols; % skip the initial transitory when plotting

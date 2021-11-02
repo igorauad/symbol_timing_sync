@@ -46,26 +46,33 @@ Kp = calcTedKp(tedChoice, rolloff);
 K0 = -1;
 [ K1, K2 ] = piLoopConstants(Kp, K0, dampingFactor, loopBw, sps);
 
-% Raised cosine pulse (Tx filter convolved with the matched filter)
-h = rcosine(1, sps, 'normal', rolloff, rcDelay);
+% Root raised cosine filters (Tx filter and Rx matched filter)
+htx = rcosdesign(rolloff, rcDelay, sps);
+hrx = htx;
 
 % Test symbols
 data = randi([0 M-1], nSymbols, 1);
 test_syms = Ksym * qammod(data, M);
 
-% Matched filter output
+% Matched filter (MF) input
 test_syms_up = upsample(test_syms, sps);
-y_mf = conv(test_syms_up, h, 'same');
+x_mf = conv(test_syms_up, htx, 'same');
 
-% The matched filter output is the input to the symbol timing recovery loop
-x = y_mf;
+% MF output
+y_mf = conv(x_mf, hrx, 'same');
 
 % Symbol timing recovery
-y = symbolTimingSync(tedChoice, interpChoice, sps, x, [], K1, K2, ...
-    const, Ksym);
+y_sync = symbolTimingSync(tedChoice, interpChoice, sps, x_mf, y_mf, ...
+    K1, K2, const, Ksym, rolloff, rcDelay);
 
-printComplexVec(x, "x");
-printComplexVec(y, "y");
+% The input to the symbol synchronizer is the MF input if using a polyphase
+% interpolator. Otherwise, it is the output of a dedicated MF block.
+if (interpChoice == 0)
+    printComplexVec(x_mf, "in");
+else
+    printComplexVec(y_mf, "in");
+end
+printComplexVec(y_sync, "out");
 end
 
 function [] = printComplexVec(x, label)

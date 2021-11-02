@@ -1,52 +1,117 @@
-function [ xI ] = symbolTimingSync(TED, intpl, L, mfOut, dMfOut, K1, ...
-    K2, const, Ksym, debug_s, debug_r)
+function [ xI ] = symbolTimingSync(TED, intpl, L, mfIn, mfOut, K1, K2, ...
+    const, Ksym, rollOff, rcDelay, debug_s, debug_r)
 % Symbol Timing Loop
 % ---------------------
 %
-% Implements symbol timing recovery with a configurable timing error
-% detector (TED) and interpolator, using a proportional-plus-integrator
-% (PI) controller and a Modulo-1 counter to control the interpolator. The
-% TED can be configured as a maximum-likelihood (ML) TED (ML-TED) or a
-% zero-crossing TED (ZC-TED), whereas the interpolator can be a linear,
-% polyphase, quadratic, or cubic interpolator.
+% Implements closed-loop symbol timing recovery with a configurable timing
+% error detector (TED) and a configurable interpolator. The feedback
+% control loop uses a proportional-plus-integrator (PI) controller and a
+% modulo-1 counter to control the interpolator. Meanwhile, the TED can be
+% configured from five alternative implementations:
+%     - Maximum-likelihood TED (MLTED);
+%     - Early-late TED (ELTED);
+%     - Zero-crossing TED (ZCTED);
+%     - Gardner TED (GTED);
+%     - Mueller-Muller TED (MMTED).
+% The interpolator can be chosen from four implementations:
+%     - Polyphase;
+%     - Linear;
+%     - Quadratic;
+%     - Cubic.
+%
+% When using a polyphase interpolator, the loop simultaneously synchronizes
+% the symbol timing and implements the matched filter (MF). In this case,
+% the loop processes the MF input sequence directly, and there is no need
+% for an external MF block. In contrast, when using any other interpolation
+% method (linear, quadratic, or cubic), the loop processes the MF output
+% and produces interpolated values based on groups of MF output samples.
+% For instance, the linear interpolator projects a line between a pair of
+% MF output samples and produces an interpolant along this line. Thus, when
+% using the linear, quadratic, or cubic interpolators, this symbol
+% synchronizer loop must be preceded by a dedicated MF block.
+%
+% In any case, to support both pre-MF and post-MF interpolation approaches,
+% this function takes both the MF input and MF output sequences as input
+% arguments (i.e., the mfIn and mfOut arguments). The mfOut argument can be
+% empty when using the polyphase interpolator, while the mfIn argument can
+% be empty when using the other interpolation methods. The only exception
+% is if using the MLTED. The MLTED uses the so-called derivative matched
+% filter (dMF), which takes the MF input sequence and produces the
+% differentiated MF output. Thus, when using the MLTED, even with the
+% linear, quadratic, or cubic interpolators, the MF input sequence must be
+% provided on the "mfIn" input argument.
+%
+% Note the reason why the matched filtering is executed jointly with symbol
+% synchronization when using the polyphase interpolator is merely because
+% it is possible to do so. The cascaded combination of the Tx root raised
+% cosine (RRC) filter and the matched RRC filter results in a raised cosine
+% filter, which, in turn, is an Lth-band filter (also known as Nyquist
+% filter) that is adequate for interpolation (see [2]). Hence, the two
+% tasks (interpolation and matched filtering) can be achieved in one go,
+% which saves the need and computational cost of an extra dedicated MF
+% block. If it were not for this approach, the computational cost of the
+% polyphase interpolator would typically be higher than the other
+% interpolation methods. In contrast, by using the polyphase interpolator
+% jointly as the MF, its computational cost becomes nearly zero, since it
+% only implements the indispensable MF computations.
+%
+% Furthermore, note all TED schemes except the GTED compute the symbol
+% timing error using symbol decisions. Hence, the reference constellation
+% and scaling factor must be provided through input arguments 'const' and
+% 'Ksym'. Such TED schemes could also leverage prior knowledge and compute
+% the timing error using known symbols instead of decisions. However, this
+% function does not offer the data-aided alternative. Instead, it only
+% implements the decision-directed flavor of each TED. Meanwhile, the
+% GTED is the only scheme purely based on the raw input samples, which is
+% not decision-directed nor data-aided. Hence, the 'const' and 'Ksym'
+% arguments are irrelevant when using the GTED.
 %
 % Input Arguments:
-% TED     -> Defines which TED should be used
-% intpl   -> Defines which interpolator should be used
-% L       -> Oversampling Factor
-% mfOut   -> MF output sequence sampled at L samples/symbol
-% dMfOut  -> Derivative MF output sequence sampled at L samples/symbol
-%            (used only with the ML-TED)
-% K1      -> Proportional Gain
-% K2      -> Integrator Gain
-% const   -> Symbol constellation
-% Ksym    -> Symbol scaling factor that must be undone prior to slicing
-% debug_s -> Show static debug plots after loop processing
-% debug_r -> Open scope objects for run-time debugging of loop iterations
-%
+% TED     -> TED scheme ('MLTED', 'ELTED', 'ZCTED', 'GTED', or 'MMTED').
+% intpl   -> Interpolator: 0) Polyphase; 1) Linear; 2) Quadratic; 3) Cubic.
+% L       -> Oversampling factor.
+% mfIn    -> MF input sequence sampled at L samples/symbol.
+% mfOut   -> MF output sequence sampled at L samples/symbol.
+% K1      -> PI controller's proportional gain.
+% K2      -> PI controller's integrator gain.
+% const   -> Symbol constellation.
+% Ksym    -> Symbol scaling factor to be undone prior to slicing.
+% rollOff -> Matched filter's rolloff factor.
+% rcDelay -> Raised cosine filter delay (double the MF delay).
+% debug_s -> Show static debug plots after the loop processing.
+% debug_r -> Open scopes for real-time monitoring over the loop iterations.
 %
 % References:
 %   [1] Michael Rice, Digital Communications - A Discrete-Time Approach.
 %   New York: Prentice Hall, 2008.
+%   [2] Milić, Ljiljana. Multirate Filtering for Digital Signal Processing:
+%   MATLAB Applications. Information Science Reference, 2009.
 
-if (nargin < 10)
+if (nargin < 12)
     debug_s = 0;
-    debug_r = 0;
 end
 
-% Interpolator Choice
-interpChoice = intpl;
+if (nargin < 13)
+    debug_r = 0;
+end
 
 % Modulation order
 M = numel(const);
 
-% Make sure the MF and dMF output arguments are column vectors
+% Make sure the input vectors are column vectors
+if (size(mfIn, 1) == 1)
+    mfIn = mfIn(:);
+end
 if (size(mfOut, 1) == 1)
     mfOut = mfOut(:);
 end
 
-if (size(dMfOut, 1) == 1)
-    dMfOut = dMfOut(:);
+% Create an alias for the input vector to be used. As explained above, use
+% the MF input with the polyphase interpolator and the MF output otherwise.
+if (intpl == 0)
+    inVec = mfIn;
+else
+    inVec = mfOut;
 end
 
 %% Optional System Objects for Step-by-step Debugging of the Loop
@@ -77,28 +142,61 @@ if (debug_r)
         'YLimits', [-1 1]);
 end
 
+%% Derivative Matched Filter (dMF) - used with the MLTED only
+% As explained above, the polyphase interpolator implements the matched
+% filtering concurrently with interpolation, so there is no need for a
+% dedicated MF block. When using the polyphase interpolator with an MLTED,
+% the same applies for the dMF part. Namely, an additional polyphase filter
+% is adopted just for the differential matched filtering. The polyphase dMF
+% obtains the interpolants jointly with dMF filtering, so there is no need
+% to use a dedicated dMF block. In contrast, the other interpolators
+% require a dedicated dMF block and process the dMF output directly. For
+% such interpolators, implement the dedicated dMF block right here:
+if (intpl ~= 0 && strcmp(TED, 'MLTED'))
+    mf = rcosdesign(rollOff, rcDelay, L);
+    dmf = derivativeMf(mf, L);
+    dMfOut = filter(dmf, 1, mfIn);
+end
+
 %% Interpolator Design
 
 % Polyphase filter bank
-if (interpChoice == 0)
-    % Fixed Parameters
-    polyInterpFactor = 32; % Interpolation factor
-    Pintfilt = 4;          % Neighbor samples weighted by each subfilter
-    bandlimFactor = 0.5;   % Bandlimitedness of the interpolated sequence
-    % Note: the polyphase filter's interpolation factor is completely
+if (intpl == 0)
+    % Interpolation factor
+    %
+    % Note the polyphase filter's interpolation factor is completely
     % independent from the receiver's oversampling factor L. For instance,
     % the receiver may be running with L=2 and the polyphase may still
     % apply a high interpolation factor such as "polyInterpFactor=32".
+    polyInterpFactor = 32;
 
-    % Design Polyphase Interpolator Filter Bank
-    [ E ] = polyphaseFilterBank(L, polyInterpFactor, Pintfilt, ...
-        bandlimFactor);
+    % Polyphase MF realization
+    %
+    % Note the RRC filter is not an Lth-band filter, so it is not strictly
+    % adequate for a polyphase interpolation filter. However, its cascaded
+    % combination with the RRC filter used on the Tx side for pulse shaping
+    % yields a raised cosine filter, which is a proper Lth-band filter.
+    interpMf = sqrt(polyInterpFactor) * ...
+        rcosdesign(rollOff, rcDelay, L * polyInterpFactor);
+    polyMf = polyDecomp(interpMf, polyInterpFactor);
+
+    % Polyphase dMF
+    %
+    % Each subfilter of the polyphase MF is a phase-offset RRC on its own,
+    % equivalent to a phase-offset version of the filter produced by
+    % "rcosdesign(rollOff, rcDelay, L)". Correspondingly, to polyphase dMF
+    % shall contain the differentiated rows of the polyphase MF.
+    polyDMf = zeros(size(polyMf));
+    for i = 1:polyInterpFactor
+        polyDMf(i, :) = derivativeMf(polyMf(i, :), L);
+    end
 
     % To facilitate the convolution computation using inner products, flip
-    % all subfilters (rows of E) from left to right.
-    E = fliplr(E);
+    % all subfilters (rows of polyMf and polyDMf) from left to right.
+    polyMf = fliplr(polyMf);
+    polyDMf = fliplr(polyDMf);
 else
-    polyBranch = []; % dummy variable
+    polySubfilt = []; % dummy variable
 end
 
 % Quadratic and cubic interpolators
@@ -115,7 +213,7 @@ end
 % which would multiply x(mk+2). For convenience, however, the flipping
 % ensures the first row has the taps for i=+1, which multiply x(mk-1). This
 % order facilitates the dot product used later.
-if (interpChoice == 2)
+if (intpl == 2)
     % Farrow coefficients for alpha=0.5 (see Table 8.4.1)
     alpha = 0.5;
     b_mtx = flipud(fliplr(...
@@ -123,7 +221,7 @@ if (interpChoice == 2)
          -alpha, (1 + alpha), 0; ...
          -alpha, (alpha - 1), 1; ...
          +alpha,      -alpha, 0]));
-elseif (interpChoice == 3)
+elseif (intpl == 3)
     % Table 8.4.2
     b_mtx = flipud(fliplr(...
         [+1/6,    0, -1/6, 0; ...
@@ -137,7 +235,7 @@ end
 %% Timing Recovery Loop
 
 % Constants
-nSamples = length(mfOut);
+nSamples = length(inVec);
 nSymbols = ceil(nSamples / L);
 
 % Preallocate
@@ -166,16 +264,18 @@ vi     = 0; % PI filter integrator
 % samples from the past. Lastly, note "cnt=1" only in the first iteration.
 % In all other iterations, it is always within [0, 1).
 
-% Due to the look-ahead scheme in the early-late TED, process
-% "length(mfOut) - L" samples only. Also, when using the quadratic or cubic
-% interpolators (which take "x(m_k + 1)" into account), leave one extra
-% sample in the end. In all other cases, process all samples.
+% End the loop with enough margin for the computations
+%
+% Do not process the last L samples when using the ELTED due to the
+% look-ahead scheme used to compute the "early" interpolant. When using the
+% quadratic or cubic interpolators (which use "x(m_k + 2)"), leave one
+% extra sample in the end. In all other cases, process all samples.
 if (strcmp(TED, 'ELTED'))
-    n_end = length(mfOut) - L;
+    n_end = nSamples - L;
 elseif (intpl > 1)
-    n_end = length(mfOut) - 1;
+    n_end = nSamples - 1;
 else
-    n_end = length(mfOut);
+    n_end = nSamples;
 end
 
 % Start with enough history samples for the interpolator.
@@ -205,8 +305,8 @@ end
 % loop must start at index "N - L". Furthermore, when using the ELTED,
 % which computes the late interpolant using basepoint index "m_k - L/2",
 % the starting index must be offset by another "L/2" samples.
-if (interpChoice == 0)
-    poly_branch_len = size(E, 2);
+if (intpl == 0)
+    poly_branch_len = size(polyMf, 2);
     n_start = max(1, poly_branch_len - L);
     if (strcmp(TED, 'ELTED'))
         n_start = n_start + L/2;
@@ -218,33 +318,36 @@ end
 for n = n_start:n_end
     if strobe == 1
         % Interpolation
-        if (interpChoice == 0)
+        if (intpl == 0)
             % When using a polyphase interpolator, update the polyphase
             % filter branch to be used next. Use mu (the k-th fractional
             % interval) to pick the appropriate subfilter.
-            chosenPolyBranch = floor(polyInterpFactor * mu(k)) + 1;
-            polyBranch = E(chosenPolyBranch, :);
+            polyBranch = floor(polyInterpFactor * mu(k)) + 1;
+            polySubfilt = polyMf(polyBranch, :);
         end
-        xI(k) = interpolate(interpChoice, ...
-            mfOut, m_k, mu(k), b_mtx, polyBranch);
+        xI(k) = interpolate(intpl, inVec, m_k, mu(k), b_mtx, polySubfilt);
 
         % Timing Error Detector:
         a_hat_k = Ksym * slice(xI(k) / Ksym, M); % Data Symbol Estimate
         switch (TED)
             case 'MLTED' % Maximum Likelihood TED
                 % dMF interpolant
-                xdotI = interpolate(interpChoice, ...
-                    dMfOut, m_k, mu(k), b_mtx, polyBranch);
+                if (intpl == 0)
+                    xdotI = interpolate(intpl, mfIn, m_k, mu(k), ...
+                        b_mtx, polyDMf(polyBranch, :));
+                else
+                    xdotI = interpolate(intpl, dMfOut, m_k, mu(k), b_mtx);
+                end
                 % Decision-directed version of Eq. (8.98), i.e., Eq. (8.27)
                 % adapted to complex symbols:
                 e(n) = real(a_hat_k) * real(xdotI) + ...
                     imag(a_hat_k) * imag(xdotI);
             case 'ELTED' % Early-late TED
                 % Early and late interpolants
-                x_early = interpolate(interpChoice, ...
-                    mfOut, m_k + L/2, mu(k), b_mtx, polyBranch);
-                x_late = interpolate(interpChoice, ...
-                    mfOut, m_k - L/2, mu(k), b_mtx, polyBranch);
+                x_early = interpolate(intpl, inVec, m_k + L/2, mu(k), ...
+                    b_mtx, polySubfilt);
+                x_late = interpolate(intpl, inVec, m_k - L/2, mu(k), ...
+                    b_mtx, polySubfilt);
                 % Decision-directed version of (8.99), i.e., (8.34)
                 % adapted to complex symbols:
                 e(n) = real(a_hat_k) * (real(x_early) - real(x_late)) + ...
@@ -260,8 +363,8 @@ for n = n_start:n_end
                     % of the midpoint between the current and previous
                     % symbols/interpolants, where the zero-crossing should
                     % be located when the loop converges.
-                    x_zc = interpolate(interpChoice, ...
-                        mfOut, m_k - L/2, mu(k), b_mtx, polyBranch);
+                    x_zc = interpolate(intpl, inVec, m_k - L/2, mu(k), ...
+                        b_mtx, polySubfilt);
 
                     % Decision-directed version of (8.100), i.e., (8.37)
                     % adapted to complex symbols:
@@ -274,8 +377,8 @@ for n = n_start:n_end
             case 'GTED' % Gardner TED
                 if (k > 1)
                     % Zero-crossing interpolant, same as used by the ZCTED
-                    x_zc = interpolate(interpChoice, ...
-                        mfOut, m_k - L/2, mu(k), b_mtx, polyBranch);
+                    x_zc = interpolate(intpl, inVec, m_k - L/2, mu(k), ...
+                        b_mtx, polySubfilt);
 
                     % Equation (8.101):
                     e(n) = real(x_zc) * (real(xI(k - 1)) - real(xI(k))) ...
@@ -378,8 +481,8 @@ end
 
 %% Interpolation
 function [xI] = interpolate(method, x, m_k, mu, b_mtx, poly_h)
-% [xI] = interpolate(interpChoice, x, mu) returns the interpolant xI
-% obtained from the vector of samples x.
+% [xI] = interpolate(method, x, m_k, mu, b_mtx, poly_h) returns the
+% interpolant xI obtained from the vector of samples x.
 %
 % Args:
 %     method -> Interpolation method: polyphase (0), linear (1), quadratic
