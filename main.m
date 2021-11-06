@@ -153,20 +153,8 @@ rxPerfectSync = downsample(mfOut, L, timeOffset);
 % MATLAB's implementation
 rxSync2 = step(SYMSYNC, mfOut);
 
-%% Plots and Measurement
+%% MER Measurement and Constellation Plots
 skip = 0.2 * nSymbols; % skip the initial transitory when plotting
-
-scatterplot(rxNoSync(skip:end))
-title('No Timing Correction');
-
-scatterplot(rxPerfectSync(skip:end))
-title('Ideal Timing Correction');
-
-scatterplot(rxSync1(skip:end))
-title(sprintf('Our %s Timing Recovery', TED));
-
-scatterplot(rxSync2(skip:end))
-title(sprintf('MATLAB''s %s', matlabTed));
 
 fprintf("\nMeasured MER:\n")
 fprintf("No Timing Correction: %.2f dB\n", mer(rxNoSync(skip:end)))
@@ -174,3 +162,17 @@ fprintf("Ideal Timing Correction: %.2f dB\n", mer(rxPerfectSync(skip:end)))
 fprintf("Our %s Timing Recovery: %.2f dB\n", TED, mer(rxSync1(skip:end)))
 fprintf("MATLAB's %s Timing Recovery: %.2f dB\n", ...
     matlabTed, mer(rxSync2(skip:end)))
+
+if (debug_tl_static)
+    scatterplot(rxNoSync(skip:end))
+    title('No Timing Correction');
+
+    scatterplot(rxPerfectSync(skip:end))
+    title('Ideal Timing Correction');
+
+    scatterplot(rxSync1(skip:end))
+    title(sprintf('Our %s Timing Recovery', TED));
+
+    scatterplot(rxSync2(skip:end))
+    title(sprintf('MATLAB''s %s', matlabTed));
+end
