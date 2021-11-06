@@ -114,7 +114,7 @@ end
 % using the sample at "m(k) + 2" as the basepoint index and "mu(k) - 0.5"
 % as the fractional symbol timing offset.
 %
-% Finally, note that "mu(k) +-0.5" may not fall within the [0, 1] range.
+% Finally, note that "mu(k) +-0.5" may not fall within the [0, 1) range.
 % For instance, if mu(k)=0, then "mu(k) - 0.5" would be negative. In this
 % case, we can move the basepoint index and readjust mu(k). For example, if
 % "mu(k) - 0.5" is negative, we can move the the basepoint index to the
@@ -220,22 +220,7 @@ if (intpl == 0)
     interpMf = sqrt(polyInterpFactor) * ...
         rcosdesign(rollOff, rcDelay, L * polyInterpFactor);
     polyMf = polyDecomp(interpMf, polyInterpFactor);
-
-    % For convenience, add one more subfilter to facilitate the branch
-    % choice when mu(k)=1.0. The polyphase branch picked for interpolation
-    % is based on the expression "round(polyInterpFactor * mu(k)) + 1",
-    % where mu(k) ranges within [0, 1]. Hence, the branch index computed
-    % with mu=1 would be out of bounds if the polyphase filter only had
-    % polyInterpFactor branches.
-    %
-    % Besides, note the phase required when mu=0 and mu=1 is the same
-    % (i.e., phase 0 and 2*pi). The only difference is on the filter delay.
-    % When mu=1, the k-th interpolant is closer to x[m_k + 1], whereas,
-    % when mu=0, it is closer to x[m_k]. Hence, the subfilter used when
-    % mu=1 must be a shifted-by-one version of the first subfilter, namely
-    % the same subfilter but with a delay shorter by one sampling period.
-    polyMf(polyInterpFactor + 1, :) = [polyMf(1, 2:end), 0];
-    assert(size(polyMf, 1) == polyInterpFactor + 1);
+    assert(size(polyMf, 1) == polyInterpFactor);
 
     % Polyphase dMF
     %
@@ -244,7 +229,7 @@ if (intpl == 0)
     % "rcosdesign(rollOff, rcDelay, L)". Correspondingly, to polyphase dMF
     % shall contain the differentiated rows of the polyphase MF.
     polyDMf = zeros(size(polyMf));
-    for i = 1:size(polyDMf, 1)
+    for i = 1:polyInterpFactor
         polyDMf(i, :) = derivativeMf(polyMf(i, :), L);
     end
 
@@ -556,26 +541,34 @@ function [xI] = interpolate(method, x, m_k, mu, b_mtx, poly_f)
 %     poly_f -> Polyphase filter bank that should process the input samples
 %               when using the polyphase interpolator (method=0).
 
-    % Adjust the basepoint if mu falls out of the [0,1] range. This step is
-    % necessary mostly to support odd oversampling ratios, when a +-0.5
-    % offset is added to the original mu estimate.
+    % Adjust the basepoint if mu falls out of the nominal [0,1) range. This
+    % step is necessary only to support odd oversampling ratios, when a
+    % +-0.5 offset is added to the original mu estimate. In contrast, with
+    % an even oversampling ratio, mu is within [0,1) by definition.
     if (mu < 0)
         m_k = m_k - 1;
         mu = mu + 1;
-    elseif (mu > 1)
+    elseif (mu >= 1)
         m_k = m_k + 1;
         mu = mu - 1;
     end
-    assert(mu >= 0 && mu <= 1);
+    assert(mu >= 0 && mu < 1);
 
     switch (method)
     case 0 % Polyphase interpolator
-        % Choose the polyphase subfilter using mu. Also, infer the
-        % polyphase interpolation factor based on the dimensions of poly_f.
-        % Assume the polyphase filter bank has an extra subfilter in the
-        % end, namely that it has "polyInterpFactor + 1" subfilters (rows).
-        polyInterpFactor = size(poly_f, 1) - 1;
-        polyBranch = round(polyInterpFactor * mu) + 1;
+        % Choose the polyphase subfilter using mu. Use the floor operator
+        % to make sure the resulting branch (polyBranch) is always within
+        % the acceptable range [1, polyInterpFactor], given that mu is
+        % within [0, 1). Also, note it is perfectly feasible to use "round"
+        % instead of "floor". In this case, it is only necessary to add an
+        % extra subfilter to the filter bank. More specifically, to add a
+        % shifted-by-one version of the first subfilter, namely the same
+        % subfilter as the first but with a delay shorter by one sampling
+        % period (see commit 0537d70). However, this extra complexity is
+        % unnecessary, especially if the polyInterpFactor is high enough,
+        % when the subfilter phases are already very close to each other.
+        polyInterpFactor = size(poly_f, 1);
+        polyBranch = floor(polyInterpFactor * mu) + 1;
         polySubfilt = poly_f(polyBranch, :);
         N = length(polySubfilt);
         xI = polySubfilt * x((m_k - N + 1) : m_k);
