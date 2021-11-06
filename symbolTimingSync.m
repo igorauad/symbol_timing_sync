@@ -313,13 +313,26 @@ vi     = 0; % PI filter integrator
 % "W=1/L" before the first strobe and "cnt=0" when the first strobe is
 % asserted, the first fractional interval estimate from Eq. (8.89) is
 % "mu=0". Consequently, the first interpolant tends to be closer (or equal
-% to) the sample at the basepoint index m_k. In other words, the first
-% interpolant is "x(L+1)". This is not strictly necessary, but is important
-% to understand, e.g., when evaluating the loop in unit tests. Also, this
-% strategy is useful to ensure there is enough "memory" when the time comes
-% to compute the first interpolant, as the interpolation equations use
-% samples from the past. Lastly, note "cnt=1" only in the first iteration.
-% In all other iterations, it is always within [0, 1).
+% to) the sample at the basepoint index m_k, namely to "x(L+1)". This is
+% not strictly necessary, but is important to understand, e.g., when
+% evaluating the loop in unit tests. Also, this strategy is useful to
+% ensure there is enough "memory" when the time comes to compute the first
+% interpolant, as the interpolation equations use samples from the past.
+%
+% Furthermore, note that some TED schemes (ZCTED, GTED, and MMTED) use the
+% previous output interpolant or its decision in the error computation.
+% Since the first strobe takes effect on iteration "n=L+2", with a
+% basepoint at "n=L+1", let the raw input sample at "n=1" be considered as
+% the "last output interpolant" when computing the timing error on the
+% first strobe, even though "inVec(1)" is not strictly an output
+% interpolant. Again, this is an arbitrary choice, which is noteworthy when
+% testing the loop. By picking inVec(1) as the starting "last_xI", we can
+% compute the timing error right from the first strobe (k=1). Otherwise, we
+% would need to compute the error conditionally on "k > 1".
+%
+% Lastly, note the above "cnt=1" initialization applies only to the first
+% iteration. In all other iterations, the counter is always within [0, 1).
+last_xI = inVec(1);
 
 % End the loop with enough margin for the computations
 %
@@ -343,7 +356,7 @@ end
 % generally sufficient for the linear, quadratic, and cubic interpolators,
 % which at maximum access the sample preceding the basepoint index (in this
 % case, index "n = m_k - 1 = L"). Thus, the loop can be started right from
-% "n=1". Furthermore, this approach works even with the ZCTED, ELTED, and
+% "n=1". Furthermore, this approach works even with the ELTED, ZCTED and
 % GTED schemes, which need to compute the zero-crossing (or late)
 % interpolants. The zero-crossing interpolant is computed based on the
 % basepoint index at "m_k - L/2", so the interpolator only uses up to index
@@ -360,14 +373,14 @@ end
 % range only works if "m_k - N + 1 >= 1", namely if "m_k >= N". And since
 % the first basepoint index occurs after L iterations from the start, the
 % loop must start at index "N - L". Furthermore, when using the ELTED,
-% which computes the late interpolant using basepoint index "m_k - L/2", or
-% "m_k - ceil(L/2)" when L is odd, the starting index must be offset by
-% another "ceil(L/2)" samples. The ZCTED and GTED schemes also compute the
-% zero-crossing interpolant, but they only operate for k > 1.
+% ZCTED, or GTED, all of which compute the zero-crossing interpolant using
+% basepoint index "m_k - ceil(L/2)", the starting index must be offset by
+% another "ceil(L/2)" samples.
 if (intpl == 0)
     poly_branch_len = size(polyMf, 2);
     n_start = max(1, poly_branch_len - L);
-    if (strcmp(TED, 'ELTED'))
+    if (strcmp(TED, 'ELTED') || strcmp(TED, 'ZCTED') || ...
+        strcmp(TED, 'GTED'))
         n_start = n_start + ceil(L/2);
     end
 else
@@ -409,53 +422,44 @@ for n = n_start:n_end
                 e(n) = real(a_hat_k) * (real(x_early) - real(x_late)) + ...
                     imag(a_hat_k) * (imag(x_early) - imag(x_late));
             case 'ZCTED' % Zero-crossing TED
-                if (k > 1)
-                    % Estimate of the previous data symbol
-                    a_hat_prev = Ksym * slice(xI(k-1) / Ksym, M);
+                % Estimate of the previous data symbol
+                a_hat_prev = Ksym * slice(last_xI / Ksym, M);
 
-                    % Zero-crossing interpolant
-                    zc_idx = m_k - midpointOffset;
-                    zc_mu = mu(k) + muOffset;
-                    x_zc = interpolate(intpl, inVec, zc_idx, zc_mu, ...
-                        b_mtx, polyMf);
+                % Zero-crossing interpolant
+                zc_idx = m_k - midpointOffset;
+                zc_mu = mu(k) + muOffset;
+                x_zc = interpolate(intpl, inVec, zc_idx, zc_mu, ...
+                    b_mtx, polyMf);
 
-                    % Decision-directed version of (8.100), i.e., (8.37)
-                    % adapted to complex symbols:
-                    e(n) = real(x_zc) * ...
-                        (real(a_hat_prev) - real(a_hat_k)) + ...
-                        imag(x_zc) * (imag(a_hat_prev) - imag(a_hat_k));
-                else
-                    e(n) = 0; % needs at least two symbols to start
-                end
+                % Decision-directed version of (8.100), i.e., (8.37)
+                % adapted to complex symbols:
+                e(n) = real(x_zc) * ...
+                    (real(a_hat_prev) - real(a_hat_k)) + ...
+                    imag(x_zc) * (imag(a_hat_prev) - imag(a_hat_k));
             case 'GTED' % Gardner TED
-                if (k > 1)
-                    % Zero-crossing interpolant, same as used by the ZCTED
-                    zc_idx = m_k - midpointOffset;
-                    zc_mu = mu(k) + muOffset;
-                    x_zc = interpolate(intpl, inVec, zc_idx, zc_mu, ...
-                        b_mtx, polyMf);
+                % Zero-crossing interpolant, same as used by the ZCTED
+                zc_idx = m_k - midpointOffset;
+                zc_mu = mu(k) + muOffset;
+                x_zc = interpolate(intpl, inVec, zc_idx, zc_mu, ...
+                    b_mtx, polyMf);
 
-                    % Equation (8.101):
-                    e(n) = real(x_zc) * (real(xI(k - 1)) - real(xI(k))) ...
-                        + imag(x_zc) * (imag(xI(k - 1)) - imag(xI(k)));
-                else
-                    e(n) = 0; % needs at least two symbols to start
-                end
+                % Equation (8.101):
+                e(n) = real(x_zc) * (real(last_xI) - real(xI(k))) ...
+                    + imag(x_zc) * (imag(last_xI) - imag(xI(k)));
             case 'MMTED' % Mueller and Müller TED
-                if (k > 1)
-                    % Estimate of the previous data symbol
-                    a_hat_prev = Ksym * slice(xI(k-1) / Ksym, M);
+                % Estimate of the previous data symbol
+                a_hat_prev = Ksym * slice(last_xI / Ksym, M);
 
-                    % Decision-directed version of (8.102), i.e., (8.49)
-                    % adapted to complex symbols:
-                    e(n) = real(a_hat_prev) * real(xI(k)) - ...
-                        real(a_hat_k) * real(xI(k - 1)) + ...
-                        imag(a_hat_prev) * imag(xI(k)) - ...
-                        imag(a_hat_k) * imag(xI(k - 1));
-                else
-                    e(n) = 0; % needs at least two symbols to start
-                end
+                % Decision-directed version of (8.102), i.e., (8.49)
+                % adapted to complex symbols:
+                e(n) = real(a_hat_prev) * real(xI(k)) - ...
+                    real(a_hat_k) * real(last_xI) + ...
+                    imag(a_hat_prev) * imag(xI(k)) - ...
+                    imag(a_hat_k) * imag(last_xI);
         end
+
+        % Update the "last output interpolant" for the next strobe
+        last_xI = xI(k);
 
         % Real-time debugging scopes
         if (debug_r)
