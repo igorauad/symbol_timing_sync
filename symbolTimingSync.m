@@ -77,7 +77,7 @@ function [ xI ] = symbolTimingSync(TED, intpl, L, mfIn, mfOut, K1, K2, ...
 % const   -> Symbol constellation.
 % Ksym    -> Symbol scaling factor to be undone prior to slicing.
 % rollOff -> Matched filter's rolloff factor.
-% rcDelay -> Raised cosine filter delay (double the MF delay).
+% rcDelay -> Raised cosine filter delay (double the MF RRC delay).
 % debug_s -> Show static debug plots after the loop processing.
 % debug_r -> Open scopes for real-time monitoring over the loop iterations.
 %
@@ -166,9 +166,14 @@ if (intpl == 0)
     %
     % Note the polyphase filter's interpolation factor is completely
     % independent from the receiver's oversampling factor L. For instance,
-    % the receiver may be running with L=2 and the polyphase may still
-    % apply a high interpolation factor such as "polyInterpFactor=32".
-    polyInterpFactor = 32;
+    % the receiver may be running with L=2 and the polyphase filter may
+    % still apply a significantly higher interpolation factor. Furthermore,
+    % note that there is no performance penalty in using a high
+    % interpolation factor, aside from using more memory to store the
+    % polyphase filter bank. In the end, a single subfilter is used per
+    % strobe anyway. A high interpolation factor (e.g., 128) is preferable
+    % when the receiver oversampling is low (e.g., L=2).
+    polyInterpFactor = 128;
 
     % Polyphase MF realization
     %
@@ -176,9 +181,33 @@ if (intpl == 0)
     % adequate for a polyphase interpolation filter. However, its cascaded
     % combination with the RRC filter used on the Tx side for pulse shaping
     % yields a raised cosine filter, which is a proper Lth-band filter.
+    %
+    % The RRC filter is normally designed based on the receiver's
+    % oversampling factor L. However, the following RRC is also an
+    % interpolator, and the interpolator aims to "divide" each sampling
+    % period into polyInterpFactor instants (or phases). Hence, design the
+    % filter with a combined oversampling factor of "L * polyInterpFactor".
+    % Later on, after applying the polyphase decomposition, each resulting
+    % subfilter will end up having an oversampling of only L.
     interpMf = sqrt(polyInterpFactor) * ...
         rcosdesign(rollOff, rcDelay, L * polyInterpFactor);
     polyMf = polyDecomp(interpMf, polyInterpFactor);
+
+    % For convenience, add one more subfilter to facilitate the branch
+    % choice when mu(k)=1.0. The polyphase branch picked for interpolation
+    % is based on the expression "round(polyInterpFactor * mu(k)) + 1",
+    % where mu(k) ranges within [0, 1]. Hence, the branch index computed
+    % with mu=1 would be out of bounds if the polyphase filter only had
+    % polyInterpFactor branches.
+    %
+    % Besides, note the phase required when mu=0 and mu=1 is the same
+    % (i.e., phase 0 and 2*pi). The only difference is on the filter delay.
+    % When mu=1, the k-th interpolant is closer to x[m_k + 1], whereas,
+    % when mu=0, it is closer to x[m_k]. Hence, the subfilter used when
+    % mu=1 must be a shifted-by-one version of the first subfilter, namely
+    % the same subfilter but with a delay shorter by one sampling period.
+    polyMf(polyInterpFactor + 1, :) = [polyMf(1, 2:end), 0];
+    assert(size(polyMf, 1) == polyInterpFactor + 1);
 
     % Polyphase dMF
     %
@@ -187,7 +216,7 @@ if (intpl == 0)
     % "rcosdesign(rollOff, rcDelay, L)". Correspondingly, to polyphase dMF
     % shall contain the differentiated rows of the polyphase MF.
     polyDMf = zeros(size(polyMf));
-    for i = 1:polyInterpFactor
+    for i = 1:size(polyDMf, 1)
         polyDMf(i, :) = derivativeMf(polyMf(i, :), L);
     end
 
@@ -322,7 +351,7 @@ for n = n_start:n_end
             % When using a polyphase interpolator, update the polyphase
             % filter branch to be used next. Use mu (the k-th fractional
             % interval) to pick the appropriate subfilter.
-            polyBranch = floor(polyInterpFactor * mu(k)) + 1;
+            polyBranch = round(polyInterpFactor * mu(k)) + 1;
             polySubfilt = polyMf(polyBranch, :);
         end
         xI(k) = interpolate(intpl, inVec, m_k, mu(k), b_mtx, polySubfilt);
