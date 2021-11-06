@@ -95,6 +95,34 @@ if (nargin < 13)
     debug_r = 0;
 end
 
+% Midpoint between consecutive symbols
+%
+% Some of the TED schemes (ELTED, ZCTED, and GTED) rely on the interpolants
+% located halfway between two consecutive output interpolants (or output
+% symbols). For instance, the ZCTED computes the timing error using the
+% zero-crossing value obtained from interpolation, referred to as the
+% "zero-crossing interpolant". When processing the k-th strobe, the loop
+% estimates the zero-crossing interpolant by applying the offset "mu(k)" on
+% the sample located at the basepoint index "m(k) - L/2".
+%
+% However, the problem is that the midpoint offset at "m(k) - L/2" only
+% works if L is even. If L is odd, we can take "ceil(L/2)" and compensate
+% for the discrepancy using the fractional timing offset mu. For instance,
+% for L=3, the basepoint index for the zero-crossing interpolant would be
+% located at "m(k) - 2", and the fractional timing offset can be adjusted
+% to "mu(k) + 0.5". Similarly, the ELTED's "early" value would be computed
+% using the sample at "m(k) + 2" as the basepoint index and "mu(k) - 0.5"
+% as the fractional symbol timing offset.
+%
+% Finally, note that "mu(k) +-0.5" may not fall within the [0, 1] range.
+% For instance, if mu(k)=0, then "mu(k) - 0.5" would be negative. In this
+% case, we can move the basepoint index and readjust mu(k). For example, if
+% "mu(k) - 0.5" is negative, we can move the the basepoint index to the
+% preceding sample and use "mu(k) - 0.5 + 1" instead. See the adjustment on
+% the "interpolate()" function.
+midpointOffset = ceil(L / 2);
+muOffset = midpointOffset - L/2; % 0.5 if L is odd, 0 if L is even
+
 % Modulation order
 M = numel(const);
 
@@ -225,7 +253,7 @@ if (intpl == 0)
     polyMf = fliplr(polyMf);
     polyDMf = fliplr(polyDMf);
 else
-    polySubfilt = []; % dummy variable
+    polyMf = []; % dummy variable
 end
 
 % Quadratic and cubic interpolators
@@ -332,13 +360,15 @@ end
 % range only works if "m_k - N + 1 >= 1", namely if "m_k >= N". And since
 % the first basepoint index occurs after L iterations from the start, the
 % loop must start at index "N - L". Furthermore, when using the ELTED,
-% which computes the late interpolant using basepoint index "m_k - L/2",
-% the starting index must be offset by another "L/2" samples.
+% which computes the late interpolant using basepoint index "m_k - L/2", or
+% "m_k - ceil(L/2)" when L is odd, the starting index must be offset by
+% another "ceil(L/2)" samples. The ZCTED and GTED schemes also compute the
+% zero-crossing interpolant, but they only operate for k > 1.
 if (intpl == 0)
     poly_branch_len = size(polyMf, 2);
     n_start = max(1, poly_branch_len - L);
     if (strcmp(TED, 'ELTED'))
-        n_start = n_start + L/2;
+        n_start = n_start + ceil(L/2);
     end
 else
     n_start = 1;
@@ -347,14 +377,7 @@ end
 for n = n_start:n_end
     if strobe == 1
         % Interpolation
-        if (intpl == 0)
-            % When using a polyphase interpolator, update the polyphase
-            % filter branch to be used next. Use mu (the k-th fractional
-            % interval) to pick the appropriate subfilter.
-            polyBranch = round(polyInterpFactor * mu(k)) + 1;
-            polySubfilt = polyMf(polyBranch, :);
-        end
-        xI(k) = interpolate(intpl, inVec, m_k, mu(k), b_mtx, polySubfilt);
+        xI(k) = interpolate(intpl, inVec, m_k, mu(k), b_mtx, polyMf);
 
         % Timing Error Detector:
         a_hat_k = Ksym * slice(xI(k) / Ksym, M); % Data Symbol Estimate
@@ -363,7 +386,7 @@ for n = n_start:n_end
                 % dMF interpolant
                 if (intpl == 0)
                     xdotI = interpolate(intpl, mfIn, m_k, mu(k), ...
-                        b_mtx, polyDMf(polyBranch, :));
+                        b_mtx, polyDMf);
                 else
                     xdotI = interpolate(intpl, dMfOut, m_k, mu(k), b_mtx);
                 end
@@ -373,10 +396,14 @@ for n = n_start:n_end
                     imag(a_hat_k) * imag(xdotI);
             case 'ELTED' % Early-late TED
                 % Early and late interpolants
-                x_early = interpolate(intpl, inVec, m_k + L/2, mu(k), ...
-                    b_mtx, polySubfilt);
-                x_late = interpolate(intpl, inVec, m_k - L/2, mu(k), ...
-                    b_mtx, polySubfilt);
+                early_idx = m_k + midpointOffset;
+                late_idx = m_k - midpointOffset;
+                early_mu = mu(k) - muOffset;
+                late_mu = mu(k) + muOffset;
+                x_early = interpolate(intpl, inVec, early_idx, ...
+                    early_mu, b_mtx, polyMf);
+                x_late = interpolate(intpl, inVec, late_idx, ...
+                    late_mu, b_mtx, polyMf);
                 % Decision-directed version of (8.99), i.e., (8.34)
                 % adapted to complex symbols:
                 e(n) = real(a_hat_k) * (real(x_early) - real(x_late)) + ...
@@ -387,13 +414,10 @@ for n = n_start:n_end
                     a_hat_prev = Ksym * slice(xI(k-1) / Ksym, M);
 
                     % Zero-crossing interpolant
-                    %
-                    % NOTE: "m(k) - L/2 + mu(k)" is the estimated instant
-                    % of the midpoint between the current and previous
-                    % symbols/interpolants, where the zero-crossing should
-                    % be located when the loop converges.
-                    x_zc = interpolate(intpl, inVec, m_k - L/2, mu(k), ...
-                        b_mtx, polySubfilt);
+                    zc_idx = m_k - midpointOffset;
+                    zc_mu = mu(k) + muOffset;
+                    x_zc = interpolate(intpl, inVec, zc_idx, zc_mu, ...
+                        b_mtx, polyMf);
 
                     % Decision-directed version of (8.100), i.e., (8.37)
                     % adapted to complex symbols:
@@ -406,8 +430,10 @@ for n = n_start:n_end
             case 'GTED' % Gardner TED
                 if (k > 1)
                     % Zero-crossing interpolant, same as used by the ZCTED
-                    x_zc = interpolate(intpl, inVec, m_k - L/2, mu(k), ...
-                        b_mtx, polySubfilt);
+                    zc_idx = m_k - midpointOffset;
+                    zc_mu = mu(k) + muOffset;
+                    x_zc = interpolate(intpl, inVec, zc_idx, zc_mu, ...
+                        b_mtx, polyMf);
 
                     % Equation (8.101):
                     e(n) = real(x_zc) * (real(xI(k - 1)) - real(xI(k))) ...
@@ -509,7 +535,7 @@ end
 end
 
 %% Interpolation
-function [xI] = interpolate(method, x, m_k, mu, b_mtx, poly_h)
+function [xI] = interpolate(method, x, m_k, mu, b_mtx, poly_f)
 % [xI] = interpolate(method, x, m_k, mu, b_mtx, poly_h) returns the
 % interpolant xI obtained from the vector of samples x.
 %
@@ -523,12 +549,32 @@ function [xI] = interpolate(method, x, m_k, mu, b_mtx, poly_h)
 %               and the desired interpolant instant.
 %     b_mtx  -> Matrix with the coefficients for the polynomial
 %               interpolator used with method=2 or method=3.
-%     poly_h -> Polyphase subfilter that should process the input samples
+%     poly_f -> Polyphase filter bank that should process the input samples
 %               when using the polyphase interpolator (method=0).
+
+    % Adjust the basepoint if mu falls out of the [0,1] range. This step is
+    % necessary mostly to support odd oversampling ratios, when a +-0.5
+    % offset is added to the original mu estimate.
+    if (mu < 0)
+        m_k = m_k - 1;
+        mu = mu + 1;
+    elseif (mu > 1)
+        m_k = m_k + 1;
+        mu = mu - 1;
+    end
+    assert(mu >= 0 && mu <= 1);
+
     switch (method)
     case 0 % Polyphase interpolator
-        N = length(poly_h);
-        xI = poly_h * x((m_k - N + 1) : m_k);
+        % Choose the polyphase subfilter using mu. Also, infer the
+        % polyphase interpolation factor based on the dimensions of poly_f.
+        % Assume the polyphase filter bank has an extra subfilter in the
+        % end, namely that it has "polyInterpFactor + 1" subfilters (rows).
+        polyInterpFactor = size(poly_f, 1) - 1;
+        polyBranch = round(polyInterpFactor * mu) + 1;
+        polySubfilt = poly_f(polyBranch, :);
+        N = length(polySubfilt);
+        xI = polySubfilt * x((m_k - N + 1) : m_k);
     case 1 % Linear Interpolator (See Eq. 8.61)
         xI = mu * x(m_k + 1) + (1 - mu) * x(m_k);
     case 2 % Quadratic Interpolator
