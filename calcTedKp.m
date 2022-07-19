@@ -36,8 +36,9 @@ end
 L = length(g) - 1;
 
 % TED Gain: slope around the origin (tau_e=0), estimated as follows:
-delta_y = g(L/2 + 1) - g(L/2 - 1);
-delta_x = normTauE(L/2 + 1) - normTauE(L/2 - 1);
+assert(normTauE(L/2 + 1) == 0)
+delta_y = g(L/2 + 2) - g(L/2);
+delta_x = normTauE(L/2 + 2) - normTauE(L/2);
 Kp = delta_y / delta_x;
 
 if (plotSCurve)
