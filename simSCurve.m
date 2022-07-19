@@ -8,6 +8,10 @@ function [ normTauE, g ] = simSCurve(TED, rollOff, rcDelay, nSymbols)
 % the average of these detected errors becomes the S-curve value for that
 % timing offset. This process repeats for all simulated timing offsets.
 %
+% The simulation assumes the Tx 2-PAM symbols are known to the detector
+% (e.g., pilot symbols), so it computes the S-curve for data-aided TED
+% operation, as opposed to decision-directed operation.
+%
 % [ normTauE, g ] = simSCurve(TED, rollOff, rcDelay, nSymbols) returns the
 % S-curve g(normTauE) of the chosen TED obtained through simulation. It
 % also returns the vector normTauE with the normalized time offset errors
@@ -98,8 +102,7 @@ for i = 1:length(tauEstVec)
         currStrobeIdx = strobeIdx(2:end); % Current symbols
         e = mfOutput(zcStrobeIdx) .* ...
             (mfOutput(prevStrobeIdx) - mfOutput(currStrobeIdx));
-        % NOTE: the GTED is purely data-aided. The other TEDs investigated
-        % by this function are implemented in their decision-directed mode.
+        % NOTE: the GTED is the only purely non-data-aided TED.
     case 'MMTED' % Mueller and Müller
         prevStrobeIdx = strobeIdx(1:end-1); % Previous symbols
         currStrobeIdx = strobeIdx(2:end); % Current symbols
